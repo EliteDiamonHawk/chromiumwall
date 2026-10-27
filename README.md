@@ -55,8 +55,6 @@ This title is the browser-independent launch-to-HWND handshake. The browser proc
 
 The tray menu supports base URL changes, per-monitor URL changes, span/all/single monitor modes, reload-all, reload-one, status output, and exit. URL changes and reloads create and validate replacement windows before closing old tracked windows.
 
-Only positively identified BrowserWall windows are closed. Browser processes and ordinary browser windows remain owned by the user.
-
 ## Preserved behavior
 
 - WorkerW/Progman desktop embedding.

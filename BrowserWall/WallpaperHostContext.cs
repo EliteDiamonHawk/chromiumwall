@@ -378,7 +378,8 @@ public sealed class WallpaperHostContext : ApplicationContext
     {
         foreach (AppWindow appWindow in _registry.Items)
         {
-            Console.WriteLine($"[Status] {appWindow.LogicalId}: {appWindow.State}, token={appWindow.Token}, HWND={FormatHwnd(appWindow.Hwnd)}, url={appWindow.Spec.Url}");
+            Console.WriteLine($"[Status] {appWindow.LogicalId}: {appWindow.State}, token={appWindow.Token}, " +
+                $"HWND={FormatHwnd(appWindow.Hwnd)}, host={FormatHwnd(appWindow.MonitorHostHwnd)}, url={appWindow.Spec.Url}");
         }
     }
 

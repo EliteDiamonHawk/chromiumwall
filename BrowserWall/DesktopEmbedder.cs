@@ -33,6 +33,8 @@ public sealed class DesktopEmbedder
         NativeMethods.WS_EX_TOOLWINDOW |
         NativeMethods.WS_EX_NOACTIVATE;
 
+    public static long GetMonitorHostStyle() => MonitorHostWindow.Style;
+
     public static bool HasNativeFrame(long style) => (style & FrameStyleMask) != 0;
 
     public static bool TryCalculateNonClientInsets(
@@ -92,9 +94,22 @@ public sealed class DesktopEmbedder
         if (!NativeMethods.IsWindow(appWindow.Hwnd))
             throw new InvalidOperationException($"Window is no longer valid: {appWindow.LogicalId}");
 
-        IntPtr host = FindDesktopHost();
-        if (host == IntPtr.Zero)
+        IntPtr worker = FindDesktopHost();
+        if (worker == IntPtr.Zero)
             throw new InvalidOperationException("Could not find the Windows desktop host window.");
+
+        MonitorGeometry geometry = ResolveGeometry(appWindow);
+        Rectangle hostBounds = MapRectangleToParent(geometry.Bounds, worker);
+        IntPtr previousMonitorHost = appWindow.MonitorHostHwnd;
+        IntPtr monitorHost = MonitorHostWindow.Ensure(previousMonitorHost, worker, hostBounds);
+        appWindow.MonitorHostHwnd = monitorHost;
+        if (!NativeMethods.TryGetWindowRect(monitorHost, out Rectangle actualHostBounds) ||
+            actualHostBounds != geometry.Bounds)
+        {
+            throw new InvalidOperationException(
+                $"Monitor host geometry mismatch for {appWindow.LogicalId}: " +
+                $"requested {geometry.Bounds}, actual {actualHostBounds}.");
+        }
 
         CaptureOriginalState(appWindow);
 
@@ -121,77 +136,70 @@ public sealed class DesktopEmbedder
             }
         }
 
-        bool parentChanged = NativeMethods.GetParent(appWindow.Hwnd) != host;
+        bool parentChanged = NativeMethods.GetParent(appWindow.Hwnd) != monitorHost;
         if (parentChanged)
         {
             Marshal.SetLastPInvokeError(0);
-            IntPtr previousParent = NativeMethods.SetParent(appWindow.Hwnd, host);
+            IntPtr previousParent = NativeMethods.SetParent(appWindow.Hwnd, monitorHost);
             int parentError = Marshal.GetLastPInvokeError();
             if (previousParent == IntPtr.Zero && parentError != 0)
                 throw new InvalidOperationException($"SetParent failed: {FormatWin32Error(parentError)}");
         }
 
-        if (NativeMethods.GetParent(appWindow.Hwnd) != host)
+        if (NativeMethods.GetParent(appWindow.Hwnd) != monitorHost)
             throw new InvalidOperationException($"SetParent verification failed for {FormatHwnd(appWindow.Hwnd)}.");
 
-        MonitorGeometry geometry = ResolveGeometry(appWindow);
-        NativeMethods.POINT[] points =
-        {
-            new() { X = geometry.Bounds.Left, Y = geometry.Bounds.Top },
-            new() { X = geometry.Bounds.Right, Y = geometry.Bounds.Bottom }
-        };
-
-        Marshal.SetLastPInvokeError(0);
-        int mapResult = NativeMethods.MapWindowPoints(IntPtr.Zero, host, points, 2);
-        int mapError = Marshal.GetLastPInvokeError();
-        if (mapResult == 0 && mapError != 0)
-            throw new InvalidOperationException($"Could not map monitor bounds into WorkerW coordinates: {FormatWin32Error(mapError)}");
-
-        Rectangle childBounds = new(points[0].X, points[0].Y,
-            points[1].X - points[0].X, points[1].Y - points[0].Y);
+        Rectangle targetClientLocal = new(0, 0, geometry.Bounds.Width, geometry.Bounds.Height);
         if (!TryMeasureWindowGeometry(appWindow.Hwnd, out WindowGeometry actualBeforeGeometry))
             throw new InvalidOperationException(
                 $"Could not measure browser client geometry before placement for {appWindow.LogicalId}.");
 
         NonClientInsets insets = actualBeforeGeometry.Insets;
-        Rectangle requestedOuterBounds = CalculateOuterBounds(childBounds, insets);
+        Rectangle requestedOuterBounds = CalculateOuterBounds(targetClientLocal, insets);
         requestedOuterBounds = ApplyTopOverscan(requestedOuterBounds, _titlebarOffset);
-        Rectangle expectedClientBounds = ApplyTopOverscan(geometry.Bounds, _titlebarOffset);
-        bool needsPosition = parentChanged || actualBeforeGeometry.ClientScreenBounds != expectedClientBounds;
+        Rectangle expectedClientLocalBounds = ApplyTopOverscan(targetClientLocal, _titlebarOffset);
+        Rectangle expectedClientScreenBounds = MapRectangleToScreen(expectedClientLocalBounds, monitorHost);
+        bool needsPosition = parentChanged || actualBeforeGeometry.ClientScreenBounds != expectedClientScreenBounds;
 
-        LogGeometry(appWindow, host, geometry, childBounds, insets, requestedOuterBounds,
-            expectedClientBounds, actualBeforeGeometry, null);
+        LogGeometry(appWindow, worker, monitorHost, geometry, targetClientLocal, insets,
+            requestedOuterBounds, expectedClientScreenBounds, actualBeforeGeometry, null);
 
-        if (needsPosition && !NativeMethods.SetWindowPos(appWindow.Hwnd, NativeMethods.HWND_BOTTOM,
+        if (needsPosition && !NativeMethods.SetWindowPos(appWindow.Hwnd, NativeMethods.HWND_TOP,
                 requestedOuterBounds.X, requestedOuterBounds.Y,
                 requestedOuterBounds.Width, requestedOuterBounds.Height,
-                NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW |
+                NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW |
                 NativeMethods.SWP_NOSENDCHANGING))
         {
             throw new InvalidOperationException(
                 $"Could not position browser window: {appWindow.LogicalId}; {FormatWin32Error(Marshal.GetLastPInvokeError())}");
         }
 
-        if (NativeMethods.GetParent(appWindow.Hwnd) != host)
+        if (NativeMethods.GetParent(appWindow.Hwnd) != monitorHost)
             throw new InvalidOperationException($"Embedded parent changed unexpectedly for {appWindow.LogicalId}.");
         if (!TryMeasureWindowGeometry(appWindow.Hwnd, out WindowGeometry actualAfterGeometry))
             throw new InvalidOperationException($"Could not verify browser geometry for {appWindow.LogicalId}.");
         Rectangle visibleClientBounds = GetVisibleClientBounds(actualAfterGeometry.ClientScreenBounds, geometry.Bounds);
-        if (actualAfterGeometry.ClientScreenBounds != expectedClientBounds || visibleClientBounds != geometry.Bounds)
+        if (actualAfterGeometry.ClientScreenBounds != expectedClientScreenBounds || visibleClientBounds != geometry.Bounds)
             throw new InvalidOperationException(
                 $"Browser client geometry mismatch for {appWindow.LogicalId}: " +
-                $"requested client {expectedClientBounds}, visible client {visibleClientBounds}, " +
+                $"requested client {expectedClientScreenBounds}, visible client {visibleClientBounds}, " +
                 $"actual client {actualAfterGeometry.ClientScreenBounds}, " +
                 $"outer {actualAfterGeometry.WindowScreenBounds}.");
 
-        LogGeometry(appWindow, host, geometry, childBounds, insets, requestedOuterBounds,
-            expectedClientBounds, actualBeforeGeometry, actualAfterGeometry);
+        LogGeometry(appWindow, worker, monitorHost, geometry, targetClientLocal, insets,
+            requestedOuterBounds, expectedClientScreenBounds, actualBeforeGeometry, actualAfterGeometry);
+
+        if (previousMonitorHost != IntPtr.Zero && previousMonitorHost != monitorHost)
+            MonitorHostWindow.Destroy(previousMonitorHost);
     }
 
     public void Close(AppWindow appWindow)
     {
         if (appWindow.Hwnd != IntPtr.Zero && NativeMethods.IsWindow(appWindow.Hwnd))
             NativeMethods.PostMessageW(appWindow.Hwnd, NativeMethods.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+
+        MonitorHostWindow.Destroy(appWindow.MonitorHostHwnd);
+        appWindow.MonitorHostHwnd = IntPtr.Zero;
     }
 
     public static IntPtr FindDesktopHost()
@@ -262,30 +270,43 @@ public sealed class DesktopEmbedder
             NativeMethods.GetParent(appWindow.Hwnd), bounds);
     }
 
-    private void LogGeometry(AppWindow appWindow, IntPtr host, MonitorGeometry geometry,
-        Rectangle targetClientBounds, NonClientInsets insets, Rectangle requestedOuterBounds,
-        Rectangle expectedClientBounds, WindowGeometry actualBefore, WindowGeometry? actualAfter)
+    private void LogGeometry(AppWindow appWindow, IntPtr worker, IntPtr monitorHost,
+        MonitorGeometry geometry, Rectangle targetClientLocal, NonClientInsets insets,
+        Rectangle requestedOuterBounds, Rectangle expectedClientScreenBounds,
+        WindowGeometry actualBefore, WindowGeometry? actualAfter)
     {
         if (!_verbose)
             return;
 
-        Rectangle hostRect = NativeMethods.TryGetWindowRect(host, out Rectangle readHostRect)
+        Rectangle workerRect = NativeMethods.TryGetWindowRect(worker, out Rectangle readWorkerRect)
+            ? readWorkerRect : Rectangle.Empty;
+        Rectangle hostRect = NativeMethods.TryGetWindowRect(monitorHost, out Rectangle readHostRect)
             ? readHostRect : Rectangle.Empty;
-        Rectangle hostClient = GetClientRect(host);
+        Rectangle hostClient = GetClientRect(monitorHost);
         long style = GetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_STYLE, "read diagnostic style").ToInt64();
         long exStyle = GetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_EXSTYLE, "read diagnostic extended style").ToInt64();
+        Rectangle browserOuter = actualAfter?.WindowScreenBounds ?? Rectangle.Empty;
+        int hostOverscanLeft = browserOuter.IsEmpty || hostRect.IsEmpty ? 0 : hostRect.Left - browserOuter.Left;
+        int hostOverscanTop = browserOuter.IsEmpty || hostRect.IsEmpty ? 0 : hostRect.Top - browserOuter.Top;
+        int hostOverscanRight = browserOuter.IsEmpty || hostRect.IsEmpty ? 0 : browserOuter.Right - hostRect.Right;
+        int hostOverscanBottom = browserOuter.IsEmpty || hostRect.IsEmpty ? 0 : browserOuter.Bottom - hostRect.Bottom;
         Console.WriteLine(
             $"[EmbedCheck] logicalId={appWindow.LogicalId}, token={appWindow.Token}, hwnd={FormatHwnd(appWindow.Hwnd)}, " +
             $"monitor={FormatHwnd(geometry.Monitor)}, rcMonitor={geometry.Bounds}, rcWork={geometry.Work}, " +
-            $"workerRect={hostRect}, workerClient={hostClient}, targetClientParent={targetClientBounds}, " +
-            $"titlebarOffset={_titlebarOffset}, expectedClientScreen={expectedClientBounds}, " +
+            $"worker={FormatHwnd(worker)}, workerRect={workerRect}, workerClient={GetClientRect(worker)}, " +
+            $"monitorHost={FormatHwnd(monitorHost)}, hostParent={FormatHwnd(NativeMethods.GetParent(monitorHost))}, " +
+            $"hostRect={hostRect}, hostClient={hostClient}, targetClientLocal={targetClientLocal}, " +
+            $"titlebarOffset={_titlebarOffset}, expectedClientScreen={expectedClientScreenBounds}, " +
             $"windowBefore={actualBefore.WindowScreenBounds}, clientLocalBefore={actualBefore.ClientLocalBounds}, " +
             $"clientScreenBefore={actualBefore.ClientScreenBounds}, nonClient={insets}, " +
             $"requestedOuter={requestedOuterBounds}, " +
             $"windowAfter={actualAfter?.WindowScreenBounds}, clientLocalAfter={actualAfter?.ClientLocalBounds}, " +
             $"clientScreenAfter={actualAfter?.ClientScreenBounds}, " +
+            $"hostOverscanLeft={hostOverscanLeft}, hostOverscanTop={hostOverscanTop}, " +
+            $"hostOverscanRight={hostOverscanRight}, hostOverscanBottom={hostOverscanBottom}, " +
+            $"browserParent={FormatHwnd(NativeMethods.GetParent(appWindow.Hwnd))}, " +
             $"style=0x{style:X}, exStyle=0x{exStyle:X}, browserDpi={NativeMethods.GetDpiForWindow(appWindow.Hwnd)}, " +
-            $"workerDpi={NativeMethods.GetDpiForWindow(host)}");
+            $"hostDpi={NativeMethods.GetDpiForWindow(monitorHost)}, workerDpi={NativeMethods.GetDpiForWindow(worker)}");
     }
 
     private static bool TryMeasureWindowGeometry(IntPtr hwnd, out WindowGeometry geometry)
@@ -325,6 +346,53 @@ public sealed class DesktopEmbedder
         if (!NativeMethods.GetClientRect(hwnd, out NativeMethods.RECT rect))
             return Rectangle.Empty;
         return Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+    }
+
+    private static Rectangle MapRectangleToParent(Rectangle screenBounds, IntPtr parent)
+    {
+        try
+        {
+            return MapRectangle(screenBounds, IntPtr.Zero, parent);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not map monitor bounds into {FormatHwnd(parent)} coordinates.", ex);
+        }
+    }
+
+    private static Rectangle MapRectangleToScreen(Rectangle localBounds, IntPtr window)
+    {
+        try
+        {
+            return MapRectangle(localBounds, window, IntPtr.Zero);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not map client bounds from {FormatHwnd(window)} to screen coordinates.", ex);
+        }
+    }
+
+    private static Rectangle MapRectangle(Rectangle bounds, IntPtr from, IntPtr to)
+    {
+        NativeMethods.POINT[] points =
+        {
+            new() { X = bounds.Left, Y = bounds.Top },
+            new() { X = bounds.Right, Y = bounds.Bottom }
+        };
+
+        Marshal.SetLastPInvokeError(0);
+        int mapResult = NativeMethods.MapWindowPoints(from, to, points, 2);
+        int mapError = Marshal.GetLastPInvokeError();
+        if (mapResult == 0 && mapError != 0)
+            throw new InvalidOperationException(FormatWin32Error(mapError));
+
+        return Rectangle.FromLTRB(
+            points[0].X,
+            points[0].Y,
+            points[1].X,
+            points[1].Y);
     }
 
     private static string FormatHwnd(IntPtr hwnd) => hwnd == IntPtr.Zero ? "0x0" : $"0x{hwnd.ToInt64():X}";

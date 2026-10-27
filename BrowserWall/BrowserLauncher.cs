@@ -75,6 +75,7 @@ public sealed class AppWindow
     public TimeSpan DiscoveryTimeout { get; }
     public DateTimeOffset Deadline { get; internal set; }
     public IntPtr Hwnd { get; internal set; }
+    public IntPtr MonitorHostHwnd { get; internal set; }
     public AppWindowState State { get; internal set; } = AppWindowState.Pending;
     public string? FailureReason { get; internal set; }
     public IntPtr OriginalHwnd { get; internal set; }

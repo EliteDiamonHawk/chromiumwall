@@ -31,6 +31,8 @@ internal static class Program
             (nameof(TopOverscanStillCoversMonitor), TopOverscanStillCoversMonitor),
             (nameof(InvalidClientGeometryIsRejected), InvalidClientGeometryIsRejected),
             (nameof(BorderlessStyleTransformationIsIdempotent), BorderlessStyleTransformationIsIdempotent),
+            (nameof(MonitorHostStyleClipsChildrenAndSiblings), MonitorHostStyleClipsChildrenAndSiblings),
+            (nameof(ClientBoundsExpandInMonitorHostCoordinates), ClientBoundsExpandInMonitorHostCoordinates),
             (nameof(HelpTextUsesBrowserWall), HelpTextUsesBrowserWall)
         };
 
@@ -222,6 +224,30 @@ internal static class Program
         AssertTrue((transformed & child) != 0);
         AssertTrue((transformed & unrelated) != 0);
         AssertEqual(transformed, transformedAgain);
+    }
+
+    private static void MonitorHostStyleClipsChildrenAndSiblings()
+    {
+        const long child = 0x40000000L;
+        const long visible = 0x10000000L;
+        const long clipChildren = 0x02000000L;
+        const long clipSiblings = 0x04000000L;
+
+        long style = DesktopEmbedder.GetMonitorHostStyle();
+
+        AssertTrue((style & child) != 0);
+        AssertTrue((style & visible) != 0);
+        AssertTrue((style & clipChildren) != 0);
+        AssertTrue((style & clipSiblings) != 0);
+    }
+
+    private static void ClientBoundsExpandInMonitorHostCoordinates()
+    {
+        Rectangle monitorLocal = new(0, 0, 2560, 1440);
+        Rectangle outer = DesktopEmbedder.CalculateOuterBounds(
+            monitorLocal, new NonClientInsets(8, 31, 8, 8));
+
+        AssertEqual(new Rectangle(-8, -31, 2576, 1479), outer);
     }
 
     private static void FinderRejectsAmbiguousMatches()

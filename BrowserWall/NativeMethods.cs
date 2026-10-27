@@ -6,6 +6,7 @@ namespace BrowserWall;
 internal static class NativeMethods
 {
     internal const int WM_CLOSE = 0x0010;
+    internal const int WM_ERASEBKGND = 0x0014;
     internal const int WM_CANCELMODE = 0x001F;
     internal const int WM_MOUSEMOVE = 0x0200;
     internal const int WM_LBUTTONDOWN = 0x0201;
@@ -33,6 +34,9 @@ internal static class NativeMethods
     internal const long WS_MAXIMIZEBOX = 0x00010000L;
     internal const long WS_SYSMENU = 0x00080000L;
     internal const long WS_CHILD = 0x40000000L;
+    internal const long WS_VISIBLE = 0x10000000L;
+    internal const long WS_CLIPSIBLINGS = 0x04000000L;
+    internal const long WS_CLIPCHILDREN = 0x02000000L;
     internal const long WS_POPUP = unchecked((long)0x80000000);
     internal const long WS_EX_APPWINDOW = 0x00040000L;
     internal const long WS_EX_TOOLWINDOW = 0x00000080L;
@@ -44,6 +48,7 @@ internal static class NativeMethods
     internal const uint SWP_SHOWWINDOW = 0x0040;
     internal const uint SWP_FRAMECHANGED = 0x0020;
     internal const uint SWP_NOSENDCHANGING = 0x0400;
+    internal const uint SWP_NOOWNERZORDER = 0x0200;
     internal const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
     internal const uint CWP_SKIPINVISIBLE = 0x0001;
     internal const int GW_OWNER = 4;
@@ -51,6 +56,7 @@ internal static class NativeMethods
     internal static readonly IntPtr HWND_TOP = IntPtr.Zero;
 
     internal delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+    internal delegate IntPtr WndProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     internal delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
     internal delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -100,6 +106,31 @@ internal static class NativeMethods
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern ushort RegisterClassExW(ref WNDCLASSEX windowClass);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern IntPtr CreateWindowExW(
+        uint extendedStyle,
+        string className,
+        string? windowName,
+        uint style,
+        int x,
+        int y,
+        int width,
+        int height,
+        IntPtr parent,
+        IntPtr menu,
+        IntPtr instance,
+        IntPtr parameter);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool DestroyWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr DefWindowProcW(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern IntPtr GetParent(IntPtr hwnd);
@@ -357,6 +388,23 @@ internal static class NativeMethods
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct WNDCLASSEX
+    {
+        public uint Size;
+        public uint Style;
+        public WndProc WindowProcedure;
+        public int ClassExtraBytes;
+        public int WindowExtraBytes;
+        public IntPtr Instance;
+        public IntPtr Icon;
+        public IntPtr Cursor;
+        public IntPtr Background;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? MenuName;
+        [MarshalAs(UnmanagedType.LPWStr)] public string ClassName;
+        public IntPtr SmallIcon;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct MONITORINFO { public int Size; public RECT Monitor; public RECT Work; public uint Flags; }
