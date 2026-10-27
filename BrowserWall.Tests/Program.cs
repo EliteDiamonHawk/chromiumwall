@@ -15,10 +15,13 @@ internal static class Program
             (nameof(LauncherCreatesUniqueTokens), LauncherCreatesUniqueTokens),
             (nameof(ExecutablePathComparisonIsCaseInsensitive), ExecutablePathComparisonIsCaseInsensitive),
             (nameof(RegistryTracksStatesAndHwndOwnership), RegistryTracksStatesAndHwndOwnership),
+            (nameof(RegistryRediscoveryReleasesStaleHwnd), RegistryRediscoveryReleasesStaleHwnd),
             (nameof(RegistryRejectsDuplicateLogicalIds), RegistryRejectsDuplicateLogicalIds),
             (nameof(FinderRejectsAmbiguousMatches), FinderRejectsAmbiguousMatches),
             (nameof(FinderRejectsWrongExecutableAndOrdinaryWindows), FinderRejectsWrongExecutableAndOrdinaryWindows),
             (nameof(OptionsParseMonitorUrlOverrides), OptionsParseMonitorUrlOverrides),
+            (nameof(GeometryPreservesNegativeCoordinates), GeometryPreservesNegativeCoordinates),
+            (nameof(BorderlessStyleTransformationIsIdempotent), BorderlessStyleTransformationIsIdempotent),
             (nameof(HelpTextUsesBrowserWall), HelpTextUsesBrowserWall)
         };
 
@@ -105,6 +108,55 @@ internal static class Program
         var registry = new WindowRegistry();
         registry.Add(NewWindow("A", "one"));
         AssertThrows<InvalidOperationException>(() => registry.Add(NewWindow("A", "two")));
+    }
+
+    private static void RegistryRediscoveryReleasesStaleHwnd()
+    {
+        var registry = new WindowRegistry();
+        AppWindow appWindow = NewWindow("A", "token-a");
+        registry.Add(appWindow);
+        IntPtr oldHwnd = new(0x1234);
+        IntPtr newHwnd = new(0x5678);
+
+        registry.MarkFound(appWindow, oldHwnd);
+        registry.MarkPendingForRediscovery(appWindow, DateTimeOffset.UtcNow);
+        AssertEqual(AppWindowState.Pending, appWindow.State);
+        AssertFalse(registry.IsHwndAssignedToAnother(oldHwnd, NewWindow("other", "other")));
+
+        registry.MarkFound(appWindow, newHwnd);
+        AssertEqual(newHwnd, appWindow.Hwnd);
+        AssertTrue(registry.IsHwndAssignedToAnother(newHwnd, NewWindow("other", "other")));
+    }
+
+    private static void GeometryPreservesNegativeCoordinates()
+    {
+        Rectangle monitor = new(-1920, -1200, 1920, 1200);
+        Rectangle mapped = DesktopEmbedder.ToParentClient(monitor, new Point(-2000, -1300));
+
+        AssertEqual(new Rectangle(80, 100, 1920, 1200), mapped);
+        AssertEqual(1920, mapped.Width);
+        AssertEqual(1200, mapped.Height);
+    }
+
+    private static void BorderlessStyleTransformationIsIdempotent()
+    {
+        const long caption = 0x00C00000L;
+        const long thickFrame = 0x00040000L;
+        const long minimizeBox = 0x00020000L;
+        const long maximizeBox = 0x00010000L;
+        const long systemMenu = 0x00080000L;
+        const long child = 0x40000000L;
+        const long popup = unchecked((long)0x80000000);
+        const long unrelated = 0x00000008L;
+        long original = caption | thickFrame | minimizeBox | maximizeBox | systemMenu | popup | unrelated;
+
+        long transformed = DesktopEmbedder.GetBorderlessChildStyle(original);
+        long transformedAgain = DesktopEmbedder.GetBorderlessChildStyle(transformed);
+
+        AssertFalse(DesktopEmbedder.HasNativeFrame(transformed));
+        AssertTrue((transformed & child) != 0);
+        AssertTrue((transformed & unrelated) != 0);
+        AssertEqual(transformed, transformedAgain);
     }
 
     private static void FinderRejectsAmbiguousMatches()

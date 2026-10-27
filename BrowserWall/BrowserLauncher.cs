@@ -62,6 +62,7 @@ public sealed class AppWindow
         Url = url;
         Spec = spec;
         StartedAt = startedAt;
+        DiscoveryTimeout = timeout;
         Deadline = startedAt + timeout;
     }
 
@@ -71,18 +72,34 @@ public sealed class AppWindow
     public WallpaperWindowSpec Spec { get; }
     public string ExpectedTitle => $"BrowserWall::{Token}";
     public DateTimeOffset StartedAt { get; }
-    public DateTimeOffset Deadline { get; }
+    public TimeSpan DiscoveryTimeout { get; }
+    public DateTimeOffset Deadline { get; internal set; }
     public IntPtr Hwnd { get; internal set; }
     public AppWindowState State { get; internal set; } = AppWindowState.Pending;
     public string? FailureReason { get; internal set; }
+    public IntPtr OriginalHwnd { get; internal set; }
+    public NativeWindowSnapshot? OriginalNativeState { get; internal set; }
 
     public bool IsExpired(DateTimeOffset now) => now >= Deadline;
+
+    internal void ResetDiscovery(DateTimeOffset now)
+    {
+        Hwnd = IntPtr.Zero;
+        OriginalHwnd = IntPtr.Zero;
+        OriginalNativeState = null;
+        FailureReason = null;
+        Deadline = now + DiscoveryTimeout;
+        State = AppWindowState.Pending;
+    }
 }
+
+public sealed record NativeWindowSnapshot(long Style, long ExtendedStyle, IntPtr Parent, Rectangle Bounds);
 
 public enum AppWindowState
 {
     Pending,
     Found,
+    Embedded,
     Closed,
     Failed
 }

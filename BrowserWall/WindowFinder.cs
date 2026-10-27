@@ -50,6 +50,18 @@ public sealed class WindowFinder
         };
     }
 
+    public bool IsExpected(AppWindow appWindow)
+    {
+        if (appWindow.Hwnd == IntPtr.Zero || !NativeMethods.IsWindow(appWindow.Hwnd))
+            return false;
+
+        if (!string.Equals(NativeMethods.GetWindowTitle(appWindow.Hwnd), appWindow.ExpectedTitle, StringComparison.Ordinal))
+            return false;
+
+        return NativeMethods.TryGetProcessImagePath(appWindow.Hwnd, out string processPath) &&
+               ExecutablePathMatcher.PathsEqual(processPath, _browserPath);
+    }
+
     private static string FormatHwnd(IntPtr hwnd) => $"0x{hwnd.ToInt64():X}";
 }
 

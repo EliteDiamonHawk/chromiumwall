@@ -5,7 +5,7 @@ public sealed class WallpaperHostContext : ApplicationContext
     private readonly HostOptions _options;
     private readonly BrowserLauncher _launcher;
     private readonly WindowFinder _finder;
-    private readonly DesktopEmbedder _embedder = new();
+    private readonly DesktopEmbedder _embedder;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly NotifyIcon _tray;
     private readonly ContextMenuStrip _menu;
@@ -21,6 +21,7 @@ public sealed class WallpaperHostContext : ApplicationContext
     private WallpaperMode _mode;
     private int _selectedMonitor;
     private bool _exiting;
+    private string _topologySignature;
     private ToolStripMenuItem? _spanItem;
     private ToolStripMenuItem? _allItem;
 
@@ -29,10 +30,12 @@ public sealed class WallpaperHostContext : ApplicationContext
         _options = options;
         _launcher = new BrowserLauncher(options.BrowserPath);
         _finder = new WindowFinder(new NativeWindowSnapshotProvider(), options.BrowserPath, options.Verbose);
+        _embedder = new DesktopEmbedder(options.Verbose);
         _baseUrl = options.Url;
         _monitorUrls = new Dictionary<int, string>(options.MonitorUrls);
         _mode = options.Mode;
         _selectedMonitor = options.SelectedMonitor;
+        _topologySignature = GetTopologySignature();
 
         _menu = new ContextMenuStrip();
         _tray = new NotifyIcon
@@ -106,18 +109,75 @@ public sealed class WallpaperHostContext : ApplicationContext
         if (_pending != null)
             PollPending();
 
+        if (_pending == null && !_exiting && GetTopologySignature() != _topologySignature)
+        {
+            _topologySignature = GetTopologySignature();
+            BeginReplacement(_options.ResolveWindowSpecs(_baseUrl, _mode, _selectedMonitor, _monitorUrls), _windows);
+            return;
+        }
+
         foreach (WallpaperWindow window in _windows.ToArray())
         {
             AppWindow appWindow = window.AppWindow;
-            if (appWindow.State == AppWindowState.Found && !NativeMethods.IsWindow(appWindow.Hwnd))
+            if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
             {
-                _registry.MarkClosed(appWindow);
-                Console.WriteLine($"[Finder] window closed: {appWindow.LogicalId} -> {FormatHwnd(appWindow.Hwnd)}");
+                if (!_finder.IsExpected(appWindow))
+                {
+                    _registry.MarkPendingForRediscovery(appWindow, DateTimeOffset.UtcNow);
+                    Console.WriteLine($"[Finder] HWND lost or identity changed: {appWindow.LogicalId}; rediscovery started.");
+                    continue;
+                }
+
+                try
+                {
+                    _embedder.Reconcile(appWindow);
+                    _registry.MarkEmbedded(appWindow);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[Embed] reconciliation failed for {appWindow.LogicalId}: {ex.Message}");
+                }
+            }
+            else if (appWindow.State == AppWindowState.Pending)
+            {
+                PollRediscovery(appWindow);
             }
         }
 
-        if (_pending == null && _windows.Count == 0 && !_exiting)
+        if (_pending == null && _windows.Count > 0 &&
+            _windows.All(window => window.AppWindow.State is AppWindowState.Closed or AppWindowState.Failed) && !_exiting)
             ExitHost();
+    }
+
+    private void PollRediscovery(AppWindow appWindow)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        if (appWindow.IsExpired(now))
+        {
+            _registry.MarkClosed(appWindow);
+            Console.WriteLine($"[Finder] rediscovery timeout: {appWindow.LogicalId}");
+            return;
+        }
+
+        WindowSearchResult result = _finder.Find(appWindow, _registry);
+        if (result.Status != WindowSearchStatus.Found)
+        {
+            if (result.Status == WindowSearchStatus.Ambiguous)
+                Console.Error.WriteLine($"[Finder] ambiguous rediscovery: {appWindow.LogicalId} ({result.MatchCount} windows)");
+            return;
+        }
+
+        _registry.MarkFound(appWindow, result.Hwnd);
+        try
+        {
+            OnAppWindowFound(appWindow, _registry);
+            Console.WriteLine($"[Finder] rediscovered window: {appWindow.LogicalId} -> {FormatHwnd(result.Hwnd)}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[Embed] failed after rediscovery for {appWindow.LogicalId}: {ex.Message}");
+            _registry.MarkPendingForRetry(appWindow);
+        }
     }
 
     private void PollPending()
@@ -147,12 +207,12 @@ public sealed class WallpaperHostContext : ApplicationContext
                 Console.WriteLine($"[Finder] matched window: {appWindow.LogicalId} -> {FormatHwnd(result.Hwnd)}");
                 try
                 {
-                    OnAppWindowFound(appWindow);
+                    OnAppWindowFound(appWindow, pending.Registry);
                 }
                 catch (Exception ex)
                 {
-                    pending.Registry.MarkFailed(appWindow, ex.Message);
                     Console.Error.WriteLine($"[Embed] failed for {appWindow.LogicalId}: {ex.Message}");
+                    pending.Registry.MarkPendingForRetry(appWindow);
                 }
             }
             else if (result.Status == WindowSearchStatus.Ambiguous)
@@ -168,15 +228,18 @@ public sealed class WallpaperHostContext : ApplicationContext
             return;
         }
 
-        if (pending.Registry.Items.All(window => window.State == AppWindowState.Found))
+        if (pending.Registry.Items.All(window => window.State == AppWindowState.Embedded))
             CommitPending();
     }
 
-    private void OnAppWindowFound(AppWindow appWindow)
+    private void OnAppWindowFound(AppWindow appWindow, WindowRegistry registry)
     {
-        // Future browser lifecycle extensions belong after this boundary.
         _embedder.Embed(appWindow);
+        registry.MarkEmbedded(appWindow);
     }
+
+    private static string GetTopologySignature() =>
+        string.Join("|", Screen.AllScreens.Select(screen => $"{screen.DeviceName}:{screen.Bounds}"));
 
     private void BeginReplacement(IReadOnlyList<WallpaperWindowSpec> specs, IReadOnlyList<WallpaperWindow> targets)
     {
@@ -236,7 +299,7 @@ public sealed class WallpaperHostContext : ApplicationContext
         ReplacementBatch pending = _pending!;
         foreach (AppWindow appWindow in pending.Registry.Items)
         {
-            if (appWindow.State == AppWindowState.Found)
+            if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
                 _embedder.Close(appWindow);
         }
 
@@ -337,7 +400,7 @@ public sealed class WallpaperHostContext : ApplicationContext
 
         foreach (AppWindow appWindow in _registry.Items.Concat(_pending?.Registry.Items ?? Array.Empty<AppWindow>()))
         {
-            if (appWindow.State == AppWindowState.Found)
+            if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
                 _embedder.Close(appWindow);
         }
 

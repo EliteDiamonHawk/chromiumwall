@@ -29,7 +29,7 @@ internal static class NativeMethods
     internal const int GWL_EXSTYLE = -20;
     internal const long WS_CAPTION = 0x00C00000L;
     internal const long WS_THICKFRAME = 0x00040000L;
-    internal const long WS_MINIMIZE = 0x20000000L;
+    internal const long WS_MINIMIZEBOX = 0x00020000L;
     internal const long WS_MAXIMIZEBOX = 0x00010000L;
     internal const long WS_SYSMENU = 0x00080000L;
     internal const long WS_CHILD = 0x40000000L;
@@ -38,6 +38,9 @@ internal static class NativeMethods
     internal const long WS_EX_TOOLWINDOW = 0x00000080L;
     internal const long WS_EX_NOACTIVATE = 0x08000000L;
     internal const uint SWP_NOACTIVATE = 0x0010;
+    internal const uint SWP_NOMOVE = 0x0002;
+    internal const uint SWP_NOSIZE = 0x0001;
+    internal const uint SWP_NOZORDER = 0x0004;
     internal const uint SWP_SHOWWINDOW = 0x0040;
     internal const uint SWP_FRAMECHANGED = 0x0020;
     internal const uint SWP_NOSENDCHANGING = 0x0400;
@@ -106,6 +109,9 @@ internal static class NativeMethods
     internal static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 
     [DllImport("user32.dll", SetLastError = true)]
+    internal static extern int MapWindowPoints(IntPtr from, IntPtr to, [In, Out] POINT[] points, uint count);
+
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern IntPtr GetWindowLongPtrW(IntPtr hwnd, int index);
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -137,6 +143,9 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr MonitorFromPoint(POINT point, uint flags);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -194,6 +203,17 @@ internal static class NativeMethods
 
     internal static int GetWindowTextLength(IntPtr hwnd) => GetWindowTextLengthW(hwnd);
     internal static void GetWindowText(IntPtr hwnd, StringBuilder text, int maxCount) => GetWindowTextW(hwnd, text, maxCount);
+
+    internal static string GetWindowTitle(IntPtr hwnd)
+    {
+        int length = GetWindowTextLengthW(hwnd);
+        if (length <= 0)
+            return string.Empty;
+
+        var title = new StringBuilder(Math.Min(length + 1, 4096));
+        GetWindowTextW(hwnd, title, title.Capacity);
+        return title.ToString();
+    }
 
     internal static bool TryGetProcessImagePath(IntPtr hwnd, out string path)
     {

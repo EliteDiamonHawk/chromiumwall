@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace BrowserWall;
@@ -6,8 +7,33 @@ public sealed class DesktopEmbedder
 {
     private const string ShellViewClass = "SHELLDLL_DefView";
     private const string WorkerWClass = "WorkerW";
+    private const long FrameStyleMask = NativeMethods.WS_CAPTION |
+                                         NativeMethods.WS_THICKFRAME |
+                                         NativeMethods.WS_MINIMIZEBOX |
+                                         NativeMethods.WS_MAXIMIZEBOX |
+                                         NativeMethods.WS_SYSMENU;
 
-    public void Embed(AppWindow appWindow)
+    private readonly bool _verbose;
+
+    public DesktopEmbedder(bool verbose = false) => _verbose = verbose;
+
+    public static long GetBorderlessChildStyle(long style) =>
+        (style & ~(FrameStyleMask | NativeMethods.WS_POPUP)) | NativeMethods.WS_CHILD;
+
+    public static long GetEmbeddedExtendedStyle(long exStyle) =>
+        (exStyle & ~NativeMethods.WS_EX_APPWINDOW) |
+        NativeMethods.WS_EX_TOOLWINDOW |
+        NativeMethods.WS_EX_NOACTIVATE;
+
+    public static bool HasNativeFrame(long style) => (style & FrameStyleMask) != 0;
+
+    public static Rectangle ToParentClient(Rectangle screenBounds, Point parentClientOrigin) =>
+        new(screenBounds.Left - parentClientOrigin.X, screenBounds.Top - parentClientOrigin.Y,
+            screenBounds.Width, screenBounds.Height);
+
+    public void Embed(AppWindow appWindow) => Reconcile(appWindow);
+
+    public void Reconcile(AppWindow appWindow)
     {
         if (!NativeMethods.IsWindow(appWindow.Hwnd))
             throw new InvalidOperationException($"Window is no longer valid: {appWindow.LogicalId}");
@@ -16,69 +42,82 @@ public sealed class DesktopEmbedder
         if (host == IntPtr.Zero)
             throw new InvalidOperationException("Could not find the Windows desktop host window.");
 
-        LogWindowState("before", appWindow.Hwnd, host);
+        CaptureOriginalState(appWindow);
 
-        long style = GetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_STYLE, "read style").ToInt64();
-        style &= ~(NativeMethods.WS_CAPTION | NativeMethods.WS_THICKFRAME |
-                   NativeMethods.WS_MINIMIZE | NativeMethods.WS_MAXIMIZEBOX |
-                   NativeMethods.WS_SYSMENU | NativeMethods.WS_POPUP);
-        style |= NativeMethods.WS_CHILD;
+        long currentStyle = GetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_STYLE, "read style").ToInt64();
+        long currentExStyle = GetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_EXSTYLE, "read extended style").ToInt64();
+        long desiredStyle = GetBorderlessChildStyle(currentStyle);
+        long desiredExStyle = GetEmbeddedExtendedStyle(currentExStyle);
+        bool styleChanged = currentStyle != desiredStyle;
+        bool exStyleChanged = currentExStyle != desiredExStyle;
 
-        long exStyle = GetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_EXSTYLE, "read extended style").ToInt64();
-        exStyle &= ~NativeMethods.WS_EX_APPWINDOW;
-        exStyle |= NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE;
+        if (styleChanged)
+            SetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_STYLE, new IntPtr(desiredStyle), "set style");
+        if (exStyleChanged)
+            SetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_EXSTYLE, new IntPtr(desiredExStyle), "set extended style");
 
-        SetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_STYLE, new IntPtr(style), "set style");
-        SetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_EXSTYLE, new IntPtr(exStyle), "set extended style");
+        if (styleChanged || exStyleChanged)
+        {
+            if (!NativeMethods.SetWindowPos(appWindow.Hwnd, NativeMethods.HWND_TOP, 0, 0, 0, 0,
+                    NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE |
+                    NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE |
+                    NativeMethods.SWP_FRAMECHANGED))
+            {
+                throw new InvalidOperationException($"Could not recalculate window frame: {FormatWin32Error(Marshal.GetLastPInvokeError())}");
+            }
+        }
+
+        bool parentChanged = NativeMethods.GetParent(appWindow.Hwnd) != host;
+        if (parentChanged)
+        {
+            Marshal.SetLastPInvokeError(0);
+            IntPtr previousParent = NativeMethods.SetParent(appWindow.Hwnd, host);
+            int parentError = Marshal.GetLastPInvokeError();
+            if (previousParent == IntPtr.Zero && parentError != 0)
+                throw new InvalidOperationException($"SetParent failed: {FormatWin32Error(parentError)}");
+        }
+
+        if (NativeMethods.GetParent(appWindow.Hwnd) != host)
+            throw new InvalidOperationException($"SetParent verification failed for {FormatHwnd(appWindow.Hwnd)}.");
+
+        MonitorGeometry geometry = ResolveGeometry(appWindow);
+        NativeMethods.POINT[] points =
+        {
+            new() { X = geometry.Bounds.Left, Y = geometry.Bounds.Top },
+            new() { X = geometry.Bounds.Right, Y = geometry.Bounds.Bottom }
+        };
 
         Marshal.SetLastPInvokeError(0);
-        IntPtr previousParent = NativeMethods.SetParent(appWindow.Hwnd, host);
-        int parentError = Marshal.GetLastPInvokeError();
-        if (previousParent == IntPtr.Zero && parentError != 0)
-            throw new InvalidOperationException($"SetParent failed: {FormatWin32Error(parentError)}");
+        int mapResult = NativeMethods.MapWindowPoints(IntPtr.Zero, host, points, 2);
+        int mapError = Marshal.GetLastPInvokeError();
+        if (mapResult == 0 && mapError != 0)
+            throw new InvalidOperationException($"Could not map monitor bounds into WorkerW coordinates: {FormatWin32Error(mapError)}");
 
-        IntPtr actualParent = NativeMethods.GetParent(appWindow.Hwnd);
-        Console.WriteLine($"[EmbedCheck] parent requested={FormatHwnd(host)}, previous={FormatHwnd(previousParent)}, actual={FormatHwnd(actualParent)}");
-        if (actualParent != host)
-            throw new InvalidOperationException($"SetParent verification failed: expected {FormatHwnd(host)}, got {FormatHwnd(actualParent)}.");
+        Rectangle childBounds = new(points[0].X, points[0].Y,
+            points[1].X - points[0].X, points[1].Y - points[0].Y);
+        bool hasActualBefore = NativeMethods.TryGetWindowRect(appWindow.Hwnd, out Rectangle actualBefore);
+        bool needsPosition = parentChanged || !hasActualBefore || actualBefore != geometry.Bounds;
 
-        Rectangle bounds = appWindow.Spec.Bounds;
-        Rectangle virtualBounds = appWindow.Spec.VirtualBounds;
-        int x = bounds.Left - virtualBounds.Left;
-        int y = bounds.Top - virtualBounds.Top;
-        Rectangle hostClient = GetClientRectChecked(host);
-        NativeMethods.POINT mappedTopLeft = new() { X = bounds.Left, Y = bounds.Top };
-        NativeMethods.POINT mappedBottomRight = new() { X = bounds.Right, Y = bounds.Bottom };
-        bool mappedTopLeftOk = NativeMethods.ScreenToClient(host, ref mappedTopLeft);
-        int mapTopLeftError = mappedTopLeftOk ? 0 : Marshal.GetLastPInvokeError();
-        bool mappedBottomRightOk = NativeMethods.ScreenToClient(host, ref mappedBottomRight);
-        int mapBottomRightError = mappedBottomRightOk ? 0 : Marshal.GetLastPInvokeError();
-        Console.WriteLine(
-            $"[EmbedCheck] hostRect={FormatWindowRect(host)}, hostClient={hostClient}, " +
-            $"requestedScreen={bounds}, virtualBounds={virtualBounds}, " +
-            $"assumedChild=({x},{y},{bounds.Width}x{bounds.Height}), " +
-            $"mappedChild={(mappedTopLeftOk && mappedBottomRightOk ? $"({mappedTopLeft.X},{mappedTopLeft.Y},{mappedBottomRight.X - mappedTopLeft.X}x{mappedBottomRight.Y - mappedTopLeft.Y})" : "FAILED")}");
-        if (!mappedTopLeftOk || !mappedBottomRightOk)
-            Console.WriteLine($"[EmbedCheck] ScreenToClient failed: topLeft={FormatWin32Error(mapTopLeftError)}, bottomRight={FormatWin32Error(mapBottomRightError)}");
-        else if (x != mappedTopLeft.X || y != mappedTopLeft.Y)
-            Console.WriteLine($"[EmbedCheck] WARNING: assumed child origin differs from host-relative origin by ({x - mappedTopLeft.X},{y - mappedTopLeft.Y}).");
+        LogGeometry(appWindow, host, geometry, childBounds, actualBefore, Rectangle.Empty);
 
-        if (!NativeMethods.SetWindowPos(
-                appWindow.Hwnd,
-                NativeMethods.HWND_BOTTOM,
-                x,
-                y,
-                bounds.Width,
-                bounds.Height,
+        if (needsPosition && !NativeMethods.SetWindowPos(appWindow.Hwnd, NativeMethods.HWND_BOTTOM,
+                childBounds.X, childBounds.Y, childBounds.Width, childBounds.Height,
                 NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW |
-                NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_NOSENDCHANGING))
+                NativeMethods.SWP_NOSENDCHANGING))
         {
             throw new InvalidOperationException(
                 $"Could not position browser window: {appWindow.LogicalId}; {FormatWin32Error(Marshal.GetLastPInvokeError())}");
         }
 
-        LogWindowState("after", appWindow.Hwnd, host);
-        Console.WriteLine($"[Embed] {appWindow.LogicalId} -> {FormatHwnd(appWindow.Hwnd)} bounds={bounds}");
+        if (NativeMethods.GetParent(appWindow.Hwnd) != host)
+            throw new InvalidOperationException($"Embedded parent changed unexpectedly for {appWindow.LogicalId}.");
+        if (!NativeMethods.TryGetWindowRect(appWindow.Hwnd, out Rectangle actualAfter))
+            throw new InvalidOperationException($"Could not verify browser geometry for {appWindow.LogicalId}.");
+        if (actualAfter != geometry.Bounds)
+            throw new InvalidOperationException(
+                $"Browser geometry mismatch for {appWindow.LogicalId}: requested {geometry.Bounds}, actual {actualAfter}.");
+
+        LogGeometry(appWindow, host, geometry, childBounds, actualBefore, actualAfter);
     }
 
     public void Close(AppWindow appWindow)
@@ -93,7 +132,8 @@ public sealed class DesktopEmbedder
         if (progman == IntPtr.Zero)
             return IntPtr.Zero;
 
-        NativeMethods.SendMessageTimeoutW(progman, NativeMethods.WM_SPAWN_WORKERW, IntPtr.Zero, IntPtr.Zero, 0, 1000, out _);
+        NativeMethods.SendMessageTimeoutW(progman, NativeMethods.WM_SPAWN_WORKERW,
+            IntPtr.Zero, IntPtr.Zero, 0, 1000, out _);
         IntPtr shellViewInProgman = NativeMethods.FindWindowExW(progman, IntPtr.Zero, ShellViewClass, null);
         if (shellViewInProgman != IntPtr.Zero)
         {
@@ -115,7 +155,71 @@ public sealed class DesktopEmbedder
         return worker != IntPtr.Zero ? worker : progman;
     }
 
-    private static string FormatHwnd(IntPtr hwnd) => $"0x{hwnd.ToInt64():X}";
+    private MonitorGeometry ResolveGeometry(AppWindow appWindow)
+    {
+        if (appWindow.LogicalId == "virtual-screen")
+            return new MonitorGeometry(IntPtr.Zero, appWindow.Spec.VirtualBounds, Rectangle.Empty);
+
+        Rectangle requested = appWindow.Spec.Bounds;
+        NativeMethods.POINT center = new()
+        {
+            X = requested.Left + requested.Width / 2,
+            Y = requested.Top + requested.Height / 2
+        };
+        IntPtr monitor = NativeMethods.MonitorFromPoint(center, NativeMethods.MONITOR_DEFAULTTONEAREST);
+        if (monitor == IntPtr.Zero)
+            throw new InvalidOperationException($"Could not resolve monitor for {appWindow.LogicalId}.");
+
+        var info = new NativeMethods.MONITORINFO { Size = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
+        if (!NativeMethods.GetMonitorInfoW(monitor, ref info))
+            throw new InvalidOperationException($"Could not read monitor geometry: {FormatWin32Error(Marshal.GetLastPInvokeError())}");
+
+        return new MonitorGeometry(monitor,
+            Rectangle.FromLTRB(info.Monitor.Left, info.Monitor.Top, info.Monitor.Right, info.Monitor.Bottom),
+            Rectangle.FromLTRB(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom));
+    }
+
+    private static void CaptureOriginalState(AppWindow appWindow)
+    {
+        if (appWindow.OriginalHwnd == appWindow.Hwnd && appWindow.OriginalNativeState != null)
+            return;
+
+        long style = GetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_STYLE, "read original style").ToInt64();
+        long exStyle = GetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_EXSTYLE, "read original extended style").ToInt64();
+        if (!NativeMethods.TryGetWindowRect(appWindow.Hwnd, out Rectangle bounds))
+            throw new InvalidOperationException($"Could not read original window bounds: {FormatWin32Error(Marshal.GetLastPInvokeError())}");
+
+        appWindow.OriginalHwnd = appWindow.Hwnd;
+        appWindow.OriginalNativeState = new NativeWindowSnapshot(style, exStyle,
+            NativeMethods.GetParent(appWindow.Hwnd), bounds);
+    }
+
+    private void LogGeometry(AppWindow appWindow, IntPtr host, MonitorGeometry geometry,
+        Rectangle childBounds, Rectangle actualBefore, Rectangle actualAfter)
+    {
+        if (!_verbose)
+            return;
+
+        Rectangle hostRect = NativeMethods.TryGetWindowRect(host, out Rectangle readHostRect)
+            ? readHostRect : Rectangle.Empty;
+        Rectangle hostClient = GetClientRect(host);
+        long style = GetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_STYLE, "read diagnostic style").ToInt64();
+        long exStyle = GetWindowLongPtrChecked(appWindow.Hwnd, NativeMethods.GWL_EXSTYLE, "read diagnostic extended style").ToInt64();
+        Console.WriteLine(
+            $"[EmbedCheck] logicalId={appWindow.LogicalId}, token={appWindow.Token}, hwnd={FormatHwnd(appWindow.Hwnd)}, " +
+            $"monitor={FormatHwnd(geometry.Monitor)}, rcMonitor={geometry.Bounds}, rcWork={geometry.Work}, " +
+            $"workerRect={hostRect}, workerClient={hostClient}, mappedChild={childBounds}, " +
+            $"actualBefore={actualBefore}, actualAfter={actualAfter}, style=0x{style:X}, exStyle=0x{exStyle:X}");
+    }
+
+    private static Rectangle GetClientRect(IntPtr hwnd)
+    {
+        if (!NativeMethods.GetClientRect(hwnd, out NativeMethods.RECT rect))
+            return Rectangle.Empty;
+        return Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+    }
+
+    private static string FormatHwnd(IntPtr hwnd) => hwnd == IntPtr.Zero ? "0x0" : $"0x{hwnd.ToInt64():X}";
 
     private static IntPtr GetWindowLongPtrChecked(IntPtr hwnd, int index, string operation)
     {
@@ -136,31 +240,13 @@ public sealed class DesktopEmbedder
             throw new InvalidOperationException($"Could not {operation} for {FormatHwnd(hwnd)}: {FormatWin32Error(error)}");
 
         IntPtr actual = GetWindowLongPtrChecked(hwnd, index, $"verify {operation}");
-        Console.WriteLine($"[EmbedCheck] {operation}: hwnd={FormatHwnd(hwnd)}, previous=0x{previous.ToInt64():X}, requested=0x{value.ToInt64():X}, actual=0x{actual.ToInt64():X}");
         if (actual != value)
-            throw new InvalidOperationException($"{operation} verification failed for {FormatHwnd(hwnd)}: requested 0x{value.ToInt64():X}, got 0x{actual.ToInt64():X}.");
-    }
-
-    private static Rectangle GetClientRectChecked(IntPtr hwnd)
-    {
-        if (!NativeMethods.GetClientRect(hwnd, out NativeMethods.RECT rect))
-            throw new InvalidOperationException($"Could not read client rect for {FormatHwnd(hwnd)}: {FormatWin32Error(Marshal.GetLastPInvokeError())}");
-        return Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
-    }
-
-    private static string FormatWindowRect(IntPtr hwnd) =>
-        NativeMethods.TryGetWindowRect(hwnd, out Rectangle rect) ? rect.ToString() : $"FAILED ({FormatWin32Error(Marshal.GetLastPInvokeError())})";
-
-    private static void LogWindowState(string phase, IntPtr hwnd, IntPtr host)
-    {
-        IntPtr style = GetWindowLongPtrChecked(hwnd, NativeMethods.GWL_STYLE, $"read style ({phase})");
-        IntPtr exStyle = GetWindowLongPtrChecked(hwnd, NativeMethods.GWL_EXSTYLE, $"read extended style ({phase})");
-        Console.WriteLine(
-            $"[EmbedCheck] {phase}: hwnd={FormatHwnd(hwnd)}, parent={FormatHwnd(NativeMethods.GetParent(hwnd))}, " +
-            $"host={FormatHwnd(host)}, style=0x{style.ToInt64():X}, exStyle=0x{exStyle.ToInt64():X}, " +
-            $"rect={FormatWindowRect(hwnd)}, hostRect={FormatWindowRect(host)}");
+            throw new InvalidOperationException(
+                $"{operation} verification failed for {FormatHwnd(hwnd)}: requested 0x{value.ToInt64():X}, got 0x{actual.ToInt64():X}.");
     }
 
     private static string FormatWin32Error(int error) =>
-        error == 0 ? "no Win32 error" : $"Win32 error {error}: {new System.ComponentModel.Win32Exception(error).Message}";
+        error == 0 ? "no Win32 error" : $"Win32 error {error}: {new Win32Exception(error).Message}";
+
+    private sealed record MonitorGeometry(IntPtr Monitor, Rectangle Bounds, Rectangle Work);
 }

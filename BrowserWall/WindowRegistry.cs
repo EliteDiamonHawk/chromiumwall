@@ -17,7 +17,7 @@ public sealed class WindowRegistry
     public bool IsHwndAssignedToAnother(IntPtr hwnd, AppWindow appWindow) =>
         hwnd != IntPtr.Zero && _byToken.Values.Any(existing =>
             !ReferenceEquals(existing, appWindow) &&
-            existing.State == AppWindowState.Found &&
+            existing.State is AppWindowState.Found or AppWindowState.Embedded &&
             existing.Hwnd == hwnd);
 
     public void MarkFound(AppWindow appWindow, IntPtr hwnd)
@@ -27,20 +27,43 @@ public sealed class WindowRegistry
         if (IsHwndAssignedToAnother(hwnd, appWindow))
             throw new InvalidOperationException("HWND is already assigned to another app window.");
 
+        if (appWindow.Hwnd != hwnd)
+        {
+            appWindow.OriginalHwnd = IntPtr.Zero;
+            appWindow.OriginalNativeState = null;
+        }
         appWindow.Hwnd = hwnd;
         appWindow.State = AppWindowState.Found;
         appWindow.FailureReason = null;
     }
 
+    public void MarkEmbedded(AppWindow appWindow)
+    {
+        if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
+            appWindow.State = AppWindowState.Embedded;
+    }
+
+    public void MarkPendingForRediscovery(AppWindow appWindow, DateTimeOffset now)
+    {
+        if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
+            appWindow.ResetDiscovery(now);
+    }
+
+    public void MarkPendingForRetry(AppWindow appWindow)
+    {
+        if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
+            appWindow.State = AppWindowState.Pending;
+    }
+
     public void MarkClosed(AppWindow appWindow)
     {
-        if (appWindow.State == AppWindowState.Found)
+        if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
             appWindow.State = AppWindowState.Closed;
     }
 
     public void MarkFailed(AppWindow appWindow, string reason)
     {
-        if (appWindow.State is AppWindowState.Pending or AppWindowState.Found)
+        if (appWindow.State is AppWindowState.Pending or AppWindowState.Found or AppWindowState.Embedded)
         {
             appWindow.State = AppWindowState.Failed;
             appWindow.FailureReason = reason;
