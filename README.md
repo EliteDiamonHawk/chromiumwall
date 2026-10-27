@@ -1,24 +1,79 @@
-# wv2wall - modified
+# BrowserWall
 
-`wv2wall` is a Windows Forms app that hosts a WebView2 surface *behind* desktop icons (attached to `WorkerW/Progman`) so a web page can act like a live wallpaper. This is a modified fork of `wv2wall`.
+BrowserWall hosts a Chromium-compatible browser page as a Windows desktop wallpaper. It launches the browser externally in `--app` mode, identifies each resulting native window by a unique title token, then attaches only those windows behind desktop icons.
 
-## wv2wall
+## Requirements
 
-The upstream code was made by `Superswan`. See `Superswan/README.md` file, the `upstream-wv2wall` branch, and/or the original [superswan/wv2wall](https://github.com/superswan/wv2wall) repo.
+- Windows 10/11
+- .NET 9 SDK
+- Chromium-compatible browser executable
 
-## modifications
+No browser embedding runtime or NuGet browser package is required.
 
-- cli parameters from `miltoncandelero`. See fork/commit [4ba511a](https://github.com/EliteDiamonHawk/PWAwall/commit/4ba511a2f10ebf0c7901446f2653a7a8e8020f14) copied from [f46e595](https://github.com/miltoncandelero/wv2wall/commit/f46e595b317003f498882752c84336a4f5082fa9)
-- manual suspend/freeze
-- toggle: auto suspend on fullscreen
-- reload tray button
+## Build
 
-## Credits
+```powershell
+dotnet build BrowserWall\BrowserWall.sln -c Release
+dotnet build BrowserWall.Tests\BrowserWall.Tests.csproj -c Release
+dotnet run --project BrowserWall.Tests\BrowserWall.Tests.csproj -c Release
+```
 
-- [Superswan](https://github.com/superswan) for upstream code
-- [miltoncandelero](https://github.com/miltoncandelero) for cli paramters code
+## Run
+
+`--browser` is required. Without `--url`, BrowserWall launches its copied `TestAssets\probe.html` page.
+
+```powershell
+BrowserWall\bin\Release\net9.0-windows\BrowserWall.exe `
+  --browser "C:\Path\To\chrome.exe" `
+  --mode all
+```
+
+Useful options:
+
+- `--browser <path>`: browser executable.
+- `--url <url>`: base HTTP, HTTPS, or file URL.
+- `--monitor-url N=<url>`: per-monitor URL override; repeatable.
+- `--mode span|all|single`: one virtual-screen window, one per monitor, or one selected monitor.
+- `--monitor <number>`: 1-based monitor for `single` mode.
+- `--browser-arg <arg>`: extra browser argument; repeatable.
+- `--poll-ms <n>` and `--timeout-ms <n>`: native window discovery timing.
+- `--verbose`: candidate-window diagnostics.
+- `--help`, `-h`: show help.
+
+## Page title contract
+
+BrowserWall appends `window` and `token` query parameters to each URL. The page must set its top-level title to:
+
+```javascript
+document.title = `BrowserWall::${token}`;
+```
+
+This title is the browser-independent launch-to-HWND handshake. The browser process ID is not used because Chromium may forward app launches into an already-running browser instance.
+
+## Tray controls
+
+The tray menu supports base URL changes, per-monitor URL changes, span/all/single monitor modes, reload-all, reload-one, status output, and exit. URL changes and reloads create and validate replacement windows before closing old tracked windows.
+
+Only positively identified BrowserWall windows are closed. Browser processes and ordinary browser windows remain owned by the user.
+
+## Preserved behavior
+
+- WorkerW/Progman desktop embedding.
+- Span, all-monitor, and selected-monitor modes.
+- Borderless, taskbar-hidden wallpaper windows.
+- Runtime URL changes and per-monitor links.
+- Fresh-window reload and transactional replacement.
+- Tray controls and CLI help.
+- Mouse, button, double-click, movement, wheel, keyboard, modifier, and web-shortcut forwarding.
+- Desktop icon selection, desktop context menu, critical system keys, and Alt+Tab pass-through.
+- Initialization retries, discovery timeout, lifecycle tracking, and graceful shutdown.
+
+Generic browser limitation: pages that do not implement the title contract cannot be correlated reliably and will time out.
+
+## Future limitations
+
+Explorer restart recovery, display hotplug/reconfiguration, and browser-specific focus/DPI quirks require later platform-specific work.
 
 ## License
-MIT
-- See `LICENSE` file for this repo
-- See `Superswan/LICENSE` file for upstream code
+
+MIT. See `LICENSE` and `Superswan\LICENSE`.
