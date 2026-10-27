@@ -99,6 +99,9 @@ internal static class NativeMethods
     internal static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
 
     [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr GetParent(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 
@@ -127,6 +130,10 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
 
     [DllImport("user32.dll")]
     internal static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
