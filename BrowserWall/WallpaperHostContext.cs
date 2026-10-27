@@ -21,6 +21,8 @@ public sealed class WallpaperHostContext : ApplicationContext
     private WallpaperMode _mode;
     private int _selectedMonitor;
     private bool _exiting;
+    private bool _closeCheckLogged;
+    private bool _allWindowsMissingLogged;
     private string _topologySignature;
     private ToolStripMenuItem? _spanItem;
     private ToolStripMenuItem? _allItem;
@@ -144,9 +146,8 @@ public sealed class WallpaperHostContext : ApplicationContext
             }
         }
 
-        if (_pending == null && _windows.Count > 0 &&
-            _windows.All(window => window.AppWindow.State is AppWindowState.Closed or AppWindowState.Failed) && !_exiting)
-            ExitHost();
+        LogAllWindowsMissingIfNeeded();
+        CheckForAllWindowsClosed();
     }
 
     private void PollRediscovery(AppWindow appWindow)
@@ -278,7 +279,10 @@ public sealed class WallpaperHostContext : ApplicationContext
     {
         ReplacementBatch pending = _pending!;
         foreach (WallpaperWindow oldWindow in pending.Targets)
+        {
+            _registry.MarkIntentionalClose(oldWindow.AppWindow);
             _embedder.Close(oldWindow.AppWindow);
+        }
 
         var remaining = _windows.Where(window => !pending.Targets.Contains(window)).ToList();
         var mergedRegistry = new WindowRegistry();
@@ -290,6 +294,8 @@ public sealed class WallpaperHostContext : ApplicationContext
         _windows = remaining.Concat(pending.Windows).ToList();
         _registry = mergedRegistry;
         _pending = null;
+        _closeCheckLogged = false;
+        _allWindowsMissingLogged = false;
         BuildMenu();
         Console.WriteLine("[Replace] committed new browser windows.");
     }
@@ -300,13 +306,14 @@ public sealed class WallpaperHostContext : ApplicationContext
         foreach (AppWindow appWindow in pending.Registry.Items)
         {
             if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
+            {
+                pending.Registry.MarkIntentionalClose(appWindow);
                 _embedder.Close(appWindow);
+            }
         }
 
         _pending = null;
-        Console.Error.WriteLine("[Replace] aborted; existing windows retained.");
-        if (_windows.Count == 0)
-            ExitHost();
+        Console.Error.WriteLine("[Replace] aborted; existing windows retained; host remains running.");
     }
 
     private void SetMode(WallpaperMode mode)
@@ -395,21 +402,57 @@ public sealed class WallpaperHostContext : ApplicationContext
     {
         if (_exiting)
             return;
-        _exiting = true;
-        _timer.Stop();
-        _input.Dispose();
 
         foreach (AppWindow appWindow in _registry.Items.Concat(_pending?.Registry.Items ?? Array.Empty<AppWindow>()))
         {
             if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
+            {
+                _registry.MarkIntentionalClose(appWindow);
                 _embedder.Close(appWindow);
+                appWindow.State = AppWindowState.Closed;
+            }
         }
+
+        CheckForAllWindowsClosed();
+
+        _exiting = true;
+        _timer.Stop();
+        _input.Dispose();
 
         _tray.Visible = false;
         _tray.Dispose();
         _menu.Dispose();
         _timer.Dispose();
         ExitThread();
+    }
+
+    private void CheckForAllWindowsClosed()
+    {
+        if (_closeCheckLogged || !CloseCheck.AllClosed(_windows.Select(window => window.AppWindow)))
+            return;
+
+        bool intentional = CloseCheck.IsIntentional(_windows.Select(window => window.AppWindow));
+        Console.WriteLine($"[CloseCheck] all tracked windows closed; intentional={intentional.ToString().ToLowerInvariant()}");
+        _closeCheckLogged = true;
+
+    }
+
+    private void LogAllWindowsMissingIfNeeded()
+    {
+        bool allMissing = _windows.Count > 0 && _windows.All(window =>
+            window.AppWindow.State == AppWindowState.Pending);
+
+        if (!allMissing)
+        {
+            _allWindowsMissingLogged = false;
+            return;
+        }
+
+        if (!_allWindowsMissingLogged)
+        {
+            Console.WriteLine("[CloseCheck] all tracked windows missing; waiting for rediscovery timeout.");
+            _allWindowsMissingLogged = true;
+        }
     }
 
     private static string FormatHwnd(IntPtr hwnd) => hwnd == IntPtr.Zero ? "<none>" : $"0x{hwnd.ToInt64():X}";

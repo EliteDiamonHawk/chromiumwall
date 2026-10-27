@@ -57,8 +57,27 @@ public sealed class WindowRegistry
 
     public void MarkClosed(AppWindow appWindow)
     {
-        if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
+        if (appWindow.State is AppWindowState.Pending or AppWindowState.Found or AppWindowState.Embedded)
+        {
             appWindow.State = AppWindowState.Closed;
+            if (appWindow.CloseIntent == WindowCloseIntent.None)
+                appWindow.CloseIntent = WindowCloseIntent.Unexpected;
+        }
+    }
+
+    public void MarkIntentionalClose(AppWindow appWindow)
+    {
+        if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
+            appWindow.CloseIntent = WindowCloseIntent.Intentional;
+    }
+
+    public void MarkUnexpectedClose(AppWindow appWindow)
+    {
+        if (appWindow.State is AppWindowState.Found or AppWindowState.Embedded)
+        {
+            appWindow.CloseIntent = WindowCloseIntent.Unexpected;
+            appWindow.State = AppWindowState.Closed;
+        }
     }
 
     public void MarkFailed(AppWindow appWindow, string reason)

@@ -15,6 +15,10 @@ internal static class Program
             (nameof(LauncherCreatesUniqueTokens), LauncherCreatesUniqueTokens),
             (nameof(ExecutablePathComparisonIsCaseInsensitive), ExecutablePathComparisonIsCaseInsensitive),
             (nameof(RegistryTracksStatesAndHwndOwnership), RegistryTracksStatesAndHwndOwnership),
+            (nameof(RegistryTracksIntentionalAndUnexpectedCloseIntent), RegistryTracksIntentionalAndUnexpectedCloseIntent),
+            (nameof(CloseCheckRequiresAllWindows), CloseCheckRequiresAllWindows),
+            (nameof(CloseCheckIntentionalClassificationIsAllOrNothing), CloseCheckIntentionalClassificationIsAllOrNothing),
+            (nameof(PendingTimeoutBecomesUnexpectedClosed), PendingTimeoutBecomesUnexpectedClosed),
             (nameof(RegistryRediscoveryReleasesStaleHwnd), RegistryRediscoveryReleasesStaleHwnd),
             (nameof(RegistryRejectsDuplicateLogicalIds), RegistryRejectsDuplicateLogicalIds),
             (nameof(FinderRejectsAmbiguousMatches), FinderRejectsAmbiguousMatches),
@@ -112,6 +116,72 @@ internal static class Program
         AssertTrue(registry.IsHwndAssignedToAnother(appWindow.Hwnd, NewWindow("other", "other")));
         registry.MarkClosed(appWindow);
         AssertEqual(AppWindowState.Closed, appWindow.State);
+        AssertEqual(WindowCloseIntent.Unexpected, appWindow.CloseIntent);
+    }
+
+    private static void RegistryTracksIntentionalAndUnexpectedCloseIntent()
+    {
+        var registry = new WindowRegistry();
+        AppWindow intentional = NewWindow("intentional", "intentional-token");
+        AppWindow unexpected = NewWindow("unexpected", "unexpected-token");
+        registry.Add(intentional);
+        registry.Add(unexpected);
+
+        registry.MarkFound(intentional, new IntPtr(0x1001));
+        registry.MarkIntentionalClose(intentional);
+        registry.MarkClosed(intentional);
+
+        registry.MarkFound(unexpected, new IntPtr(0x1002));
+        registry.MarkClosed(unexpected);
+
+        AssertEqual(WindowCloseIntent.Intentional, intentional.CloseIntent);
+        AssertEqual(WindowCloseIntent.Unexpected, unexpected.CloseIntent);
+    }
+
+    private static void CloseCheckRequiresAllWindows()
+    {
+        var registry = new WindowRegistry();
+        AppWindow closed = NewWindow("closed", "closed-token");
+        AppWindow open = NewWindow("open", "open-token");
+        registry.Add(closed);
+        registry.Add(open);
+        registry.MarkFound(closed, new IntPtr(0x2001));
+        registry.MarkClosed(closed);
+        registry.MarkFound(open, new IntPtr(0x2002));
+
+        AssertFalse(CloseCheck.AllClosed(new[] { closed, open }));
+        registry.MarkFailed(open, "test failure");
+        AssertTrue(CloseCheck.AllClosed(new[] { closed, open }));
+    }
+
+    private static void CloseCheckIntentionalClassificationIsAllOrNothing()
+    {
+        AppWindow first = NewWindow("first", "first-token");
+        AppWindow second = NewWindow("second", "second-token");
+        var registry = new WindowRegistry();
+        registry.Add(first);
+        registry.Add(second);
+        registry.MarkFound(first, new IntPtr(0x3001));
+        registry.MarkFound(second, new IntPtr(0x3002));
+        registry.MarkIntentionalClose(first);
+        registry.MarkIntentionalClose(second);
+
+        AssertTrue(CloseCheck.IsIntentional(new[] { first, second }));
+        registry.MarkUnexpectedClose(second);
+        AssertFalse(CloseCheck.IsIntentional(new[] { first, second }));
+    }
+
+    private static void PendingTimeoutBecomesUnexpectedClosed()
+    {
+        var registry = new WindowRegistry();
+        AppWindow appWindow = NewWindow("pending", "pending-token");
+        registry.Add(appWindow);
+
+        registry.MarkClosed(appWindow);
+
+        AssertEqual(AppWindowState.Closed, appWindow.State);
+        AssertEqual(WindowCloseIntent.Unexpected, appWindow.CloseIntent);
+        AssertTrue(CloseCheck.AllClosed(new[] { appWindow }));
     }
 
     private static void RegistryRejectsDuplicateLogicalIds()

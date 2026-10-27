@@ -77,6 +77,7 @@ public sealed class AppWindow
     public IntPtr Hwnd { get; internal set; }
     public IntPtr MonitorHostHwnd { get; internal set; }
     public AppWindowState State { get; internal set; } = AppWindowState.Pending;
+    public WindowCloseIntent CloseIntent { get; internal set; } = WindowCloseIntent.None;
     public string? FailureReason { get; internal set; }
     public IntPtr OriginalHwnd { get; internal set; }
     public NativeWindowSnapshot? OriginalNativeState { get; internal set; }
@@ -103,6 +104,24 @@ public enum AppWindowState
     Embedded,
     Closed,
     Failed
+}
+
+public enum WindowCloseIntent
+{
+    None,
+    Intentional,
+    Unexpected
+}
+
+public static class CloseCheck
+{
+    public static bool AllClosed(IEnumerable<AppWindow> windows) =>
+        windows.Any() && windows.All(window =>
+            window.State is AppWindowState.Closed or AppWindowState.Failed);
+
+    public static bool IsIntentional(IEnumerable<AppWindow> windows) =>
+        windows.Any() && windows.All(window =>
+            window.CloseIntent == WindowCloseIntent.Intentional);
 }
 
 public static class UrlBuilder

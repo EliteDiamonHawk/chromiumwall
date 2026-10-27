@@ -51,6 +51,19 @@ document.title = `BrowserWall::${token}`;
 
 This title is the browser-independent launch-to-HWND handshake. The browser process ID is not used because Chromium may forward app launches into an already-running browser instance.
 
+## Chromium
+
+Recommended settings per browser
+
+### Chrome
+
+- enable "Continue running background apps when Google Chrome is closed" in <chrome://settings/system>
+- use `--titlebar-offset 35` 
+
+### Vivaldi
+
+- enable "Continue running background apps when Vivaldi is closed" in <vivaldi:settings/system>
+
 ## Tray controls
 
 The tray menu supports base URL changes, per-monitor URL changes, span/all/single monitor modes, reload-all, reload-one, status output, and exit. URL changes and reloads create and validate replacement windows before closing old tracked windows.
