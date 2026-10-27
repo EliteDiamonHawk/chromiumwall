@@ -14,8 +14,16 @@ public sealed class DesktopEmbedder
                                          NativeMethods.WS_SYSMENU;
 
     private readonly bool _verbose;
+    private readonly int _titlebarOffset;
 
-    public DesktopEmbedder(bool verbose = false) => _verbose = verbose;
+    public DesktopEmbedder(bool verbose = false, int titlebarOffset = 0)
+    {
+        if (titlebarOffset < 0)
+            throw new ArgumentOutOfRangeException(nameof(titlebarOffset));
+
+        _verbose = verbose;
+        _titlebarOffset = titlebarOffset;
+    }
 
     public static long GetBorderlessChildStyle(long style) =>
         (style & ~(FrameStyleMask | NativeMethods.WS_POPUP)) | NativeMethods.WS_CHILD;
@@ -57,6 +65,21 @@ public sealed class DesktopEmbedder
             targetClientBounds.Top - insets.Top,
             checked(targetClientBounds.Width + insets.Left + insets.Right),
             checked(targetClientBounds.Height + insets.Top + insets.Bottom));
+
+    public static Rectangle ApplyTopOverscan(Rectangle bounds, int offset)
+    {
+        if (offset < 0)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+
+        return new Rectangle(
+            bounds.X,
+            checked(bounds.Y - offset),
+            bounds.Width,
+            checked(bounds.Height + offset));
+    }
+
+    public static Rectangle GetVisibleClientBounds(Rectangle clientBounds, Rectangle monitorBounds) =>
+        Rectangle.Intersect(clientBounds, monitorBounds);
 
     public static Rectangle ToParentClient(Rectangle screenBounds, Point parentClientOrigin) =>
         new(screenBounds.Left - parentClientOrigin.X, screenBounds.Top - parentClientOrigin.Y,
@@ -132,10 +155,12 @@ public sealed class DesktopEmbedder
 
         NonClientInsets insets = actualBeforeGeometry.Insets;
         Rectangle requestedOuterBounds = CalculateOuterBounds(childBounds, insets);
-        bool needsPosition = parentChanged || actualBeforeGeometry.ClientScreenBounds != geometry.Bounds;
+        requestedOuterBounds = ApplyTopOverscan(requestedOuterBounds, _titlebarOffset);
+        Rectangle expectedClientBounds = ApplyTopOverscan(geometry.Bounds, _titlebarOffset);
+        bool needsPosition = parentChanged || actualBeforeGeometry.ClientScreenBounds != expectedClientBounds;
 
         LogGeometry(appWindow, host, geometry, childBounds, insets, requestedOuterBounds,
-            actualBeforeGeometry, null);
+            expectedClientBounds, actualBeforeGeometry, null);
 
         if (needsPosition && !NativeMethods.SetWindowPos(appWindow.Hwnd, NativeMethods.HWND_BOTTOM,
                 requestedOuterBounds.X, requestedOuterBounds.Y,
@@ -151,14 +176,16 @@ public sealed class DesktopEmbedder
             throw new InvalidOperationException($"Embedded parent changed unexpectedly for {appWindow.LogicalId}.");
         if (!TryMeasureWindowGeometry(appWindow.Hwnd, out WindowGeometry actualAfterGeometry))
             throw new InvalidOperationException($"Could not verify browser geometry for {appWindow.LogicalId}.");
-        if (actualAfterGeometry.ClientScreenBounds != geometry.Bounds)
+        Rectangle visibleClientBounds = GetVisibleClientBounds(actualAfterGeometry.ClientScreenBounds, geometry.Bounds);
+        if (actualAfterGeometry.ClientScreenBounds != expectedClientBounds || visibleClientBounds != geometry.Bounds)
             throw new InvalidOperationException(
                 $"Browser client geometry mismatch for {appWindow.LogicalId}: " +
-                $"requested monitor {geometry.Bounds}, actual client {actualAfterGeometry.ClientScreenBounds}, " +
+                $"requested client {expectedClientBounds}, visible client {visibleClientBounds}, " +
+                $"actual client {actualAfterGeometry.ClientScreenBounds}, " +
                 $"outer {actualAfterGeometry.WindowScreenBounds}.");
 
         LogGeometry(appWindow, host, geometry, childBounds, insets, requestedOuterBounds,
-            actualBeforeGeometry, actualAfterGeometry);
+            expectedClientBounds, actualBeforeGeometry, actualAfterGeometry);
     }
 
     public void Close(AppWindow appWindow)
@@ -237,7 +264,7 @@ public sealed class DesktopEmbedder
 
     private void LogGeometry(AppWindow appWindow, IntPtr host, MonitorGeometry geometry,
         Rectangle targetClientBounds, NonClientInsets insets, Rectangle requestedOuterBounds,
-        WindowGeometry actualBefore, WindowGeometry? actualAfter)
+        Rectangle expectedClientBounds, WindowGeometry actualBefore, WindowGeometry? actualAfter)
     {
         if (!_verbose)
             return;
@@ -251,6 +278,7 @@ public sealed class DesktopEmbedder
             $"[EmbedCheck] logicalId={appWindow.LogicalId}, token={appWindow.Token}, hwnd={FormatHwnd(appWindow.Hwnd)}, " +
             $"monitor={FormatHwnd(geometry.Monitor)}, rcMonitor={geometry.Bounds}, rcWork={geometry.Work}, " +
             $"workerRect={hostRect}, workerClient={hostClient}, targetClientParent={targetClientBounds}, " +
+            $"titlebarOffset={_titlebarOffset}, expectedClientScreen={expectedClientBounds}, " +
             $"windowBefore={actualBefore.WindowScreenBounds}, clientLocalBefore={actualBefore.ClientLocalBounds}, " +
             $"clientScreenBefore={actualBefore.ClientScreenBounds}, nonClient={insets}, " +
             $"requestedOuter={requestedOuterBounds}, " +

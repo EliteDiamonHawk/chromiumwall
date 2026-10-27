@@ -20,10 +20,15 @@ internal static class Program
             (nameof(FinderRejectsAmbiguousMatches), FinderRejectsAmbiguousMatches),
             (nameof(FinderRejectsWrongExecutableAndOrdinaryWindows), FinderRejectsWrongExecutableAndOrdinaryWindows),
             (nameof(OptionsParseMonitorUrlOverrides), OptionsParseMonitorUrlOverrides),
+            (nameof(TitlebarOffsetDefaultsToZero), TitlebarOffsetDefaultsToZero),
+            (nameof(TitlebarOffsetParsesAsNonNegativePixels), TitlebarOffsetParsesAsNonNegativePixels),
+            (nameof(TitlebarOffsetRejectsNegativeAndMalformedValues), TitlebarOffsetRejectsNegativeAndMalformedValues),
             (nameof(GeometryPreservesNegativeCoordinates), GeometryPreservesNegativeCoordinates),
             (nameof(NonClientInsetsAreDerivedFromMappedRectangles), NonClientInsetsAreDerivedFromMappedRectangles),
             (nameof(ClientBoundsExpandByMeasuredInsets), ClientBoundsExpandByMeasuredInsets),
             (nameof(ZeroInsetsPreserveClientBounds), ZeroInsetsPreserveClientBounds),
+            (nameof(TopOverscanMovesUpAndPreservesBottom), TopOverscanMovesUpAndPreservesBottom),
+            (nameof(TopOverscanStillCoversMonitor), TopOverscanStillCoversMonitor),
             (nameof(InvalidClientGeometryIsRejected), InvalidClientGeometryIsRejected),
             (nameof(BorderlessStyleTransformationIsIdempotent), BorderlessStyleTransformationIsIdempotent),
             (nameof(HelpTextUsesBrowserWall), HelpTextUsesBrowserWall)
@@ -167,6 +172,25 @@ internal static class Program
         AssertEqual(targetClient, DesktopEmbedder.CalculateOuterBounds(targetClient, default));
     }
 
+    private static void TopOverscanMovesUpAndPreservesBottom()
+    {
+        Rectangle original = new(100, 200, 1920, 1119);
+        Rectangle adjusted = DesktopEmbedder.ApplyTopOverscan(original, 31);
+
+        AssertEqual(new Rectangle(100, 169, 1920, 1150), adjusted);
+        AssertEqual(original.Bottom, adjusted.Bottom);
+    }
+
+    private static void TopOverscanStillCoversMonitor()
+    {
+        Rectangle monitor = new(-1920, -1200, 1920, 1200);
+        Rectangle client = DesktopEmbedder.ApplyTopOverscan(monitor, 31);
+
+        AssertEqual(monitor, DesktopEmbedder.GetVisibleClientBounds(client, monitor));
+        AssertEqual(monitor.Bottom, client.Bottom);
+        AssertEqual(monitor.Top - 31, client.Top);
+    }
+
     private static void InvalidClientGeometryIsRejected()
     {
         AssertFalse(DesktopEmbedder.TryCalculateNonClientInsets(
@@ -239,6 +263,36 @@ internal static class Program
 
         AssertEqual("https://monitor.example/", options.MonitorUrls[1]);
         AssertEqual(WallpaperMode.All, options.Mode);
+    }
+
+    private static void TitlebarOffsetDefaultsToZero()
+    {
+        HostOptions options = HostOptions.Parse(new[] { "--browser", CurrentExecutable() });
+
+        AssertEqual(0, options.TitlebarOffset);
+    }
+
+    private static void TitlebarOffsetParsesAsNonNegativePixels()
+    {
+        HostOptions options = HostOptions.Parse(new[]
+        {
+            "--browser", CurrentExecutable(),
+            "--titlebar-offset=31"
+        });
+
+        AssertEqual(31, options.TitlebarOffset);
+    }
+
+    private static void TitlebarOffsetRejectsNegativeAndMalformedValues()
+    {
+        AssertThrows<OptionException>(() => HostOptions.Parse(new[]
+        {
+            "--browser", CurrentExecutable(), "--titlebar-offset", "-1"
+        }));
+        AssertThrows<OptionException>(() => HostOptions.Parse(new[]
+        {
+            "--browser", CurrentExecutable(), "--titlebar-offset", "pixels"
+        }));
     }
 
     private static void HelpTextUsesBrowserWall() =>

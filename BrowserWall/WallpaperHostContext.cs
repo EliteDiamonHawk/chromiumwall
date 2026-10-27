@@ -30,7 +30,7 @@ public sealed class WallpaperHostContext : ApplicationContext
         _options = options;
         _launcher = new BrowserLauncher(options.BrowserPath);
         _finder = new WindowFinder(new NativeWindowSnapshotProvider(), options.BrowserPath, options.Verbose);
-        _embedder = new DesktopEmbedder(options.Verbose);
+        _embedder = new DesktopEmbedder(options.Verbose, options.TitlebarOffset);
         _baseUrl = options.Url;
         _monitorUrls = new Dictionary<int, string>(options.MonitorUrls);
         _mode = options.Mode;

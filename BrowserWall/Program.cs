@@ -56,6 +56,7 @@ public sealed class HostOptions
     public int SelectedMonitor { get; private init; }
     public int PollIntervalMs { get; private init; } = 250;
     public TimeSpan Timeout { get; private init; } = TimeSpan.FromSeconds(30);
+    public int TitlebarOffset { get; private init; }
     public bool Verbose { get; private init; }
     public bool ShowHelp { get; private init; }
 
@@ -70,6 +71,7 @@ public sealed class HostOptions
         int selectedMonitor = 0;
         int pollMs = 250;
         int timeoutMs = 30_000;
+        int titlebarOffset = 0;
         bool verbose = false;
 
         for (int index = 0; index < args.Length; index++)
@@ -141,6 +143,9 @@ public sealed class HostOptions
                 case "--timeout-ms":
                     timeoutMs = ParsePositiveInt(NextValue(args, ref index, option, inlineValue), option);
                     break;
+                case "--titlebar-offset":
+                    titlebarOffset = ParseNonNegativeInt(NextValue(args, ref index, option, inlineValue), option);
+                    break;
                 default:
                     throw new OptionException($"Unknown argument: {argument}");
             }
@@ -164,6 +169,7 @@ public sealed class HostOptions
             SelectedMonitor = selectedMonitor,
             PollIntervalMs = pollMs,
             Timeout = TimeSpan.FromMilliseconds(timeoutMs),
+            TitlebarOffset = titlebarOffset,
             Verbose = verbose
         };
     }
@@ -234,6 +240,13 @@ public sealed class HostOptions
         return parsed;
     }
 
+    private static int ParseNonNegativeInt(string value, string option)
+    {
+        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int parsed) || parsed < 0)
+            throw new OptionException($"{option} requires a non-negative integer.");
+        return parsed;
+    }
+
     private static string DefaultProbeUrl() =>
         new Uri(Path.Combine(AppContext.BaseDirectory, "TestAssets", "probe.html")).AbsoluteUri;
 
@@ -253,6 +266,7 @@ public sealed class HostOptions
           --monitor <number>      1-based monitor for single mode. Default: 1.
           --poll-ms <n>           Finder polling interval. Default: 250.
           --timeout-ms <n>        Window discovery timeout. Default: 30000.
+          --titlebar-offset <n>   Move browser client content upward by n pixels. Default: 0.
           --verbose               Log candidate windows during discovery.
           --help, -h              Show this help.
 

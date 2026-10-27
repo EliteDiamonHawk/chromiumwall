@@ -37,6 +37,7 @@ Useful options:
 - `--monitor <number>`: 1-based monitor for `single` mode.
 - `--browser-arg <arg>`: extra browser argument; repeatable.
 - `--poll-ms <n>` and `--timeout-ms <n>`: native window discovery timing.
+- `--titlebar-offset <n>`: move browser client content upward by `n` native pixels; default `0`.
 - `--verbose`: candidate-window diagnostics.
 - `--help`, `-h`: show help.
 
