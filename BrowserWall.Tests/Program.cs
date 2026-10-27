@@ -21,6 +21,10 @@ internal static class Program
             (nameof(FinderRejectsWrongExecutableAndOrdinaryWindows), FinderRejectsWrongExecutableAndOrdinaryWindows),
             (nameof(OptionsParseMonitorUrlOverrides), OptionsParseMonitorUrlOverrides),
             (nameof(GeometryPreservesNegativeCoordinates), GeometryPreservesNegativeCoordinates),
+            (nameof(NonClientInsetsAreDerivedFromMappedRectangles), NonClientInsetsAreDerivedFromMappedRectangles),
+            (nameof(ClientBoundsExpandByMeasuredInsets), ClientBoundsExpandByMeasuredInsets),
+            (nameof(ZeroInsetsPreserveClientBounds), ZeroInsetsPreserveClientBounds),
+            (nameof(InvalidClientGeometryIsRejected), InvalidClientGeometryIsRejected),
             (nameof(BorderlessStyleTransformationIsIdempotent), BorderlessStyleTransformationIsIdempotent),
             (nameof(HelpTextUsesBrowserWall), HelpTextUsesBrowserWall)
         };
@@ -136,6 +140,43 @@ internal static class Program
         AssertEqual(new Rectangle(80, 100, 1920, 1200), mapped);
         AssertEqual(1920, mapped.Width);
         AssertEqual(1200, mapped.Height);
+    }
+
+    private static void NonClientInsetsAreDerivedFromMappedRectangles()
+    {
+        Rectangle window = new(-8, -31, 1936, 1119);
+        Rectangle client = new(0, 0, 1920, 1080);
+
+        AssertTrue(DesktopEmbedder.TryCalculateNonClientInsets(window, client, out NonClientInsets insets));
+        AssertEqual(new NonClientInsets(8, 31, 8, 8), insets);
+    }
+
+    private static void ClientBoundsExpandByMeasuredInsets()
+    {
+        Rectangle targetClient = new(-1920, -1200, 1920, 1200);
+        Rectangle outer = DesktopEmbedder.CalculateOuterBounds(
+            targetClient, new NonClientInsets(8, 31, 8, 8));
+
+        AssertEqual(new Rectangle(-1928, -1231, 1936, 1239), outer);
+    }
+
+    private static void ZeroInsetsPreserveClientBounds()
+    {
+        Rectangle targetClient = new(10, 20, 300, 200);
+
+        AssertEqual(targetClient, DesktopEmbedder.CalculateOuterBounds(targetClient, default));
+    }
+
+    private static void InvalidClientGeometryIsRejected()
+    {
+        AssertFalse(DesktopEmbedder.TryCalculateNonClientInsets(
+            new Rectangle(0, 0, 100, 100),
+            new Rectangle(-1, 0, 100, 100),
+            out _));
+        AssertFalse(DesktopEmbedder.TryCalculateNonClientInsets(
+            new Rectangle(0, 0, 100, 100),
+            Rectangle.Empty,
+            out _));
     }
 
     private static void BorderlessStyleTransformationIsIdempotent()
