@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace BrowserWall;
+namespace ChromiumWall;
 
 public sealed class BrowserLauncher
 {
@@ -70,7 +70,7 @@ public sealed class AppWindow
     public string Token { get; }
     public string Url { get; }
     public WallpaperWindowSpec Spec { get; }
-    public string ExpectedTitle => $"BrowserWall::{Token}";
+    public string ExpectedTitle => $"ChromiumWall::{Token}";
     public DateTimeOffset StartedAt { get; }
     public TimeSpan DiscoveryTimeout { get; }
     public DateTimeOffset Deadline { get; internal set; }

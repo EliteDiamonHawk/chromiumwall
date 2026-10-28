@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace BrowserWall;
+namespace ChromiumWall;
 
 public sealed record WindowCandidate(IntPtr Hwnd, string Title, string ExecutablePath);
 

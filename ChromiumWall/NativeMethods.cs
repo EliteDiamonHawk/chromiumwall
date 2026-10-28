@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace BrowserWall;
+namespace ChromiumWall;
 
 internal static class NativeMethods
 {

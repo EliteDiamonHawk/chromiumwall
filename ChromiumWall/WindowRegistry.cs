@@ -1,4 +1,4 @@
-namespace BrowserWall;
+namespace ChromiumWall;
 
 public sealed class WindowRegistry
 {

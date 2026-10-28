@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace BrowserWall;
+namespace ChromiumWall;
 
 internal static class Program
 {
@@ -251,10 +251,10 @@ public sealed class HostOptions
         new Uri(Path.Combine(AppContext.BaseDirectory, "TestAssets", "probe.html")).AbsoluteUri;
 
     public const string HelpText = """
-        BrowserWall - Chromium live wallpaper host
+        ChromiumWall - Chromium live wallpaper host
 
         Usage:
-          BrowserWall.exe --browser <path> [options]
+          ChromiumWall.exe --browser <path> [options]
 
         Options:
           --browser <path>       Chromium-compatible executable. Required.
@@ -270,7 +270,7 @@ public sealed class HostOptions
           --verbose               Log candidate windows during discovery.
           --help, -h              Show this help.
 
-        Pages must set document.title to BrowserWall::<token>.
+        Pages must set document.title to ChromiumWall::<token>.
         """;
 }
 

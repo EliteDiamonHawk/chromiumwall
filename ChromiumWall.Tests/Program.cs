@@ -1,7 +1,7 @@
 using System.Drawing;
-using BrowserWall;
+using ChromiumWall;
 
-namespace BrowserWall.Tests;
+namespace ChromiumWall.Tests;
 
 internal static class Program
 {
@@ -37,7 +37,7 @@ internal static class Program
             (nameof(BorderlessStyleTransformationIsIdempotent), BorderlessStyleTransformationIsIdempotent),
             (nameof(MonitorHostStyleClipsChildrenAndSiblings), MonitorHostStyleClipsChildrenAndSiblings),
             (nameof(ClientBoundsExpandInMonitorHostCoordinates), ClientBoundsExpandInMonitorHostCoordinates),
-            (nameof(HelpTextUsesBrowserWall), HelpTextUsesBrowserWall)
+            (nameof(HelpTextUsesChromiumWall), HelpTextUsesChromiumWall)
         };
 
         int failures = 0;
@@ -81,9 +81,9 @@ internal static class Program
         AppWindow appWindow = NewWindow("A", "abc");
         IReadOnlyList<string> arguments = BrowserLauncher.BuildArguments(
             appWindow,
-            new[] { "--profile-directory=BrowserWall", "--disable-features=Some Feature" });
+            new[] { "--profile-directory=ChromiumWall", "--disable-features=Some Feature" });
 
-        AssertEqual("--profile-directory=BrowserWall", arguments[0]);
+        AssertEqual("--profile-directory=ChromiumWall", arguments[0]);
         AssertEqual("--disable-features=Some Feature", arguments[1]);
         AssertTrue(arguments[2].StartsWith("--app=https://example.test/?window=A&token=abc", StringComparison.Ordinal));
     }
@@ -96,7 +96,7 @@ internal static class Program
             .ToArray();
 
         AssertEqual(100, requests.Select(request => request.Token).Distinct(StringComparer.Ordinal).Count());
-        AssertTrue(requests.All(request => request.ExpectedTitle.StartsWith("BrowserWall::", StringComparison.Ordinal)));
+        AssertTrue(requests.All(request => request.ExpectedTitle.StartsWith("ChromiumWall::", StringComparison.Ordinal)));
     }
 
     private static void ExecutablePathComparisonIsCaseInsensitive()
@@ -391,8 +391,8 @@ internal static class Program
         }));
     }
 
-    private static void HelpTextUsesBrowserWall() =>
-        AssertTrue(HostOptions.HelpText.Contains("BrowserWall", StringComparison.Ordinal));
+    private static void HelpTextUsesChromiumWall() =>
+        AssertTrue(HostOptions.HelpText.Contains("ChromiumWall", StringComparison.Ordinal));
 
     private static AppWindow NewWindow(string logicalId, string token) =>
         new(logicalId, token, $"https://example.test/?window={logicalId}&token={token}",

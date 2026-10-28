@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
-namespace BrowserWall;
+namespace ChromiumWall;
 
 public sealed class DesktopEmbedder
 {

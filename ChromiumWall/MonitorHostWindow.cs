@@ -1,11 +1,11 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 
-namespace BrowserWall;
+namespace ChromiumWall;
 
 internal static class MonitorHostWindow
 {
-    private const string ClassName = "BrowserWallMonitorHost";
+    private const string ClassName = "ChromiumWallMonitorHost";
     private const int ErrorClassAlreadyExists = 1410;
     private static readonly object SyncRoot = new();
     private static readonly NativeMethods.WndProc WindowProcedure = WndProc;

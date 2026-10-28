@@ -1,4 +1,4 @@
-namespace BrowserWall;
+namespace ChromiumWall;
 
 public sealed class WallpaperHostContext : ApplicationContext
 {
@@ -43,7 +43,7 @@ public sealed class WallpaperHostContext : ApplicationContext
         _tray = new NotifyIcon
         {
             Icon = SystemIcons.Application,
-            Text = "BrowserWall",
+            Text = "ChromiumWall",
             Visible = true,
             ContextMenuStrip = _menu
         };
@@ -346,7 +346,7 @@ public sealed class WallpaperHostContext : ApplicationContext
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "BrowserWall - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(ex.Message, "ChromiumWall - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 
@@ -364,7 +364,7 @@ public sealed class WallpaperHostContext : ApplicationContext
         }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "BrowserWall - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show(ex.Message, "ChromiumWall - Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
 

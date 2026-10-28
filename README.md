@@ -1,6 +1,6 @@
-# BrowserWall
+# ChromiumWall
 
-BrowserWall hosts a Chromium-compatible browser page as a Windows desktop wallpaper. It launches the browser externally in `--app` mode, identifies each resulting native window by a unique title token, then attaches only those windows behind desktop icons.
+ChromiumWall hosts a Chromium-compatible browser page as a Windows desktop wallpaper. It launches the browser externally in `--app` mode, identifies each resulting native window by a unique title token, then attaches only those windows behind desktop icons.
 
 ## Requirements
 
@@ -13,17 +13,17 @@ No browser embedding runtime or NuGet browser package is required.
 ## Build
 
 ```powershell
-dotnet build BrowserWall\BrowserWall.sln -c Release
-dotnet build BrowserWall.Tests\BrowserWall.Tests.csproj -c Release
-dotnet run --project BrowserWall.Tests\BrowserWall.Tests.csproj -c Release
+dotnet build ChromiumWall\ChromiumWall.sln -c Release
+dotnet build ChromiumWall.Tests\ChromiumWall.Tests.csproj -c Release
+dotnet run --project ChromiumWall.Tests\ChromiumWall.Tests.csproj -c Release
 ```
 
 ## Run
 
-`--browser` is required. Without `--url`, BrowserWall launches its copied `TestAssets\probe.html` page.
+`--browser` is required. Without `--url`, ChromiumWall launches its copied `TestAssets\probe.html` page.
 
 ```powershell
-BrowserWall\bin\Release\net9.0-windows\BrowserWall.exe `
+ChromiumWall\bin\Release\net9.0-windows\ChromiumWall.exe `
   --browser "C:\Path\To\chrome.exe" `
   --mode all
 ```
@@ -43,10 +43,10 @@ Useful options:
 
 ## Page title contract
 
-BrowserWall appends `window` and `token` query parameters to each URL. The page must set its top-level title to:
+ChromiumWall appends `window` and `token` query parameters to each URL. The page must set its top-level title to:
 
 ```javascript
-document.title = `BrowserWall::${token}`;
+document.title = `ChromiumWall::${token}`;
 ```
 
 This title is the browser-independent launch-to-HWND handshake. The browser process ID is not used because Chromium may forward app launches into an already-running browser instance.
