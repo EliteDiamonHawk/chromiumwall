@@ -2,6 +2,10 @@
 
 ChromiumWall hosts a Chromium-compatible browser page as a Windows desktop wallpaper. It launches the browser externally in `--app` mode, identifies each resulting native window by a unique title token, then attaches only those windows behind desktop icons.
 
+## BrowserWall Collection
+
+see [BrowserWall.md](https://github.com/EliteDiamonHawk/wv2wall/blob/main/BrowserWall.md)
+
 ## Requirements
 
 - Windows 10/11
