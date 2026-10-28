@@ -68,7 +68,7 @@ Recommended settings per browser
 
 The tray menu supports base URL changes, per-monitor URL changes, span/all/single monitor modes, reload-all, reload-one, status output, and exit. URL changes and reloads create and validate replacement windows before closing old tracked windows.
 
-## Preserved behavior
+## Behavior
 
 - WorkerW/Progman desktop embedding.
 - Span, all-monitor, and selected-monitor modes.
