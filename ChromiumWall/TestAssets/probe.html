@@ -15,6 +15,9 @@
   <p>Logical window: <code id="window">unknown</code></p>
   <p>Launch token: <code id="token">missing</code></p>
   <p>This page sets the native window title to <code>ChromiumWall::&lt;token&gt;</code>.</p>
+  <label>Input <input id="keyboard-input" placeholder="Editable input"></label>
+  <label>Notes <textarea id="keyboard-textarea" rows="3" cols="30"></textarea></label>
+  <button type="button" id="ordinary-button">Ordinary button</button>
   <script>
     const params = new URLSearchParams(window.location.search);
     const logicalWindow = params.get('window') || 'unknown';

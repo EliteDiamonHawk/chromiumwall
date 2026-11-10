@@ -24,6 +24,27 @@ internal static class NativeMethods
     internal const int WM_SYSKEYUP = 0x0105;
     internal const int WM_SPAWN_WORKERW = 0x052C;
 
+    internal const int VK_TAB = 0x09;
+    internal const int VK_SHIFT = 0x10;
+    internal const int VK_CONTROL = 0x11;
+    internal const int VK_MENU = 0x12;
+    internal const int VK_CAPITAL = 0x14;
+    internal const int VK_ESCAPE = 0x1B;
+    internal const int VK_SNAPSHOT = 0x2C;
+    internal const int VK_LWIN = 0x5B;
+    internal const int VK_RWIN = 0x5C;
+    internal const int VK_LSHIFT = 0xA0;
+    internal const int VK_RSHIFT = 0xA1;
+    internal const int VK_LCONTROL = 0xA2;
+    internal const int VK_RCONTROL = 0xA3;
+    internal const int VK_LMENU = 0xA4;
+    internal const int VK_RMENU = 0xA5;
+    internal const int VK_NUMLOCK = 0x90;
+    internal const int VK_SCROLL = 0x91;
+    internal const int VK_APPS = 0x5D;
+    internal const int VK_PAUSE = 0x13;
+    internal const int GA_ROOT = 2;
+
     internal const int WH_KEYBOARD_LL = 13;
     internal const int WH_MOUSE_LL = 14;
     internal const int GWL_STYLE = -16;
@@ -198,6 +219,10 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetGUIThreadInfo(uint threadId, ref GUITHREADINFO info);
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     internal static extern int GetClassNameW(IntPtr hwnd, StringBuilder className, int maxCount);
 
@@ -287,8 +312,21 @@ internal static class NativeMethods
         return false;
     }
 
-    internal static bool IsDescendantOrSelf(IntPtr hwnd, IntPtr ancestor) =>
-        hwnd == ancestor || GetAncestor(hwnd, 2) == ancestor;
+    internal static bool IsDescendantOrSelf(IntPtr hwnd, IntPtr ancestor)
+    {
+        if (hwnd == IntPtr.Zero || ancestor == IntPtr.Zero)
+            return false;
+
+        IntPtr current = hwnd;
+        while (current != IntPtr.Zero)
+        {
+            if (current == ancestor)
+                return true;
+            current = GetParent(current);
+        }
+
+        return false;
+    }
 
     internal static bool TryClearDesktopSelection(IntPtr desktopList)
     {
@@ -414,6 +452,19 @@ internal static class NativeMethods
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct KBDLLHOOKSTRUCT { public uint vkCode; public uint scanCode; public uint flags; public uint time; public IntPtr extraInfo; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct GUITHREADINFO
+    {
+        public uint CbSize;
+        public uint Flags;
+        public IntPtr HwndActive;
+        public IntPtr HwndFocus;
+        public IntPtr HwndCapture;
+        public IntPtr HwndMenuOwner;
+        public IntPtr HwndMoveSize;
+        public IntPtr HwndCaret;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct LVITEM

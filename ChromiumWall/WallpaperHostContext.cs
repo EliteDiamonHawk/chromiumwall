@@ -250,6 +250,8 @@ public sealed class WallpaperHostContext : ApplicationContext
             return;
         }
 
+        _input.CancelKeyboardInteraction("wallpaper renderer replacement");
+
         var registry = new WindowRegistry();
         var windows = new List<WallpaperWindow>();
         foreach (WallpaperWindowSpec spec in specs)

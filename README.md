@@ -80,7 +80,7 @@ The tray menu supports base URL changes, per-monitor URL changes, span/all/singl
 - Runtime URL changes and per-monitor links.
 - Fresh-window reload and transactional replacement.
 - Tray controls and CLI help.
-- Mouse, button, double-click, movement, wheel, keyboard, modifier, and web-shortcut forwarding.
+- Mouse, button, double-click, movement, wheel, and validated keyboard forwarding.
 - Desktop icon selection, desktop context menu, critical system keys, and Alt+Tab pass-through.
 - Initialization retries, discovery timeout, lifecycle tracking, and graceful shutdown.
 
@@ -89,6 +89,8 @@ Generic browser limitation: pages that do not implement the title contract canno
 ## Future limitations
 
 Explorer restart recovery, display hotplug/reconfiguration, and browser-specific focus/DPI quirks require later platform-specific work.
+
+Keyboard input starts in a safe pass-through state. A background click only arms a possible renderer interaction; keyboard messages are forwarded only after the clicked renderer has native focus and the desktop remains the foreground context. ChromiumWall has no reliable DOM-focus channel for an externally launched browser, so native renderer focus is an explicit `RendererFallback`; it does not claim to distinguish an input from another focused page element. Start/Search, Alt+Tab, system keys, outside clicks, foreground changes, and renderer replacement revoke ownership immediately or before the next key is forwarded. If focus cannot be verified, Windows keeps the input.
 
 ## License
 

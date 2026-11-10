@@ -37,6 +37,12 @@ internal static class Program
             (nameof(BorderlessStyleTransformationIsIdempotent), BorderlessStyleTransformationIsIdempotent),
             (nameof(MonitorHostStyleClipsChildrenAndSiblings), MonitorHostStyleClipsChildrenAndSiblings),
             (nameof(ClientBoundsExpandInMonitorHostCoordinates), ClientBoundsExpandInMonitorHostCoordinates),
+            (nameof(KeyboardOwnershipStartsSafe), KeyboardOwnershipStartsSafe),
+            (nameof(KeyboardOwnershipRequiresPromotion), KeyboardOwnershipRequiresPromotion),
+            (nameof(KeyboardOwnershipCapturesForeground), KeyboardOwnershipCapturesForeground),
+            (nameof(KeyboardOwnershipRejectsStaleTarget), KeyboardOwnershipRejectsStaleTarget),
+            (nameof(KeyboardOwnershipCanBeRevoked), KeyboardOwnershipCanBeRevoked),
+            (nameof(KeyboardPolicyUsesStrictSystemPassThrough), KeyboardPolicyUsesStrictSystemPassThrough),
             (nameof(HelpTextUsesChromiumWall), HelpTextUsesChromiumWall)
         };
 
@@ -318,6 +324,75 @@ internal static class Program
             monitorLocal, new NonClientInsets(8, 31, 8, 8));
 
         AssertEqual(new Rectangle(-8, -31, 2576, 1479), outer);
+    }
+
+    private static void KeyboardOwnershipStartsSafe()
+    {
+        var state = new KeyboardOwnershipState();
+
+        AssertEqual(KeyboardInputState.NoBackgroundKeyboardInput, state.State);
+        AssertEqual(IntPtr.Zero, state.Target);
+        AssertEqual(IntPtr.Zero, state.Foreground);
+        AssertEqual(KeyboardFocusKind.None, state.FocusKind);
+    }
+
+    private static void KeyboardOwnershipRequiresPromotion()
+    {
+        var state = new KeyboardOwnershipState();
+        IntPtr target = new(0x101);
+
+        state.Arm(target);
+
+        AssertEqual(KeyboardInputState.PendingBackgroundKeyboardInteraction, state.State);
+        AssertFalse(state.IsValid(target, new IntPtr(0x202)));
+        AssertTrue(state.TryBegin(new IntPtr(0x202), KeyboardFocusKind.RendererFallback));
+        AssertEqual(KeyboardInputState.BackgroundKeyboardInteraction, state.State);
+    }
+
+    private static void KeyboardOwnershipCapturesForeground()
+    {
+        var state = new KeyboardOwnershipState();
+        IntPtr target = new(0x303);
+        IntPtr foreground = new(0x404);
+
+        state.Arm(target);
+        state.TryBegin(foreground, KeyboardFocusKind.RendererFallback);
+
+        AssertTrue(state.IsValid(target, foreground));
+        AssertFalse(state.IsValid(target, new IntPtr(0x505)));
+    }
+
+    private static void KeyboardOwnershipRejectsStaleTarget()
+    {
+        var state = new KeyboardOwnershipState();
+
+        AssertFalse(state.TryBegin(new IntPtr(0x606), KeyboardFocusKind.RendererFallback));
+        state.Arm(IntPtr.Zero);
+        AssertEqual(KeyboardInputState.NoBackgroundKeyboardInput, state.State);
+    }
+
+    private static void KeyboardOwnershipCanBeRevoked()
+    {
+        var state = new KeyboardOwnershipState();
+        state.Arm(new IntPtr(0x707));
+        state.TryBegin(new IntPtr(0x808), KeyboardFocusKind.RendererFallback);
+
+        state.End();
+
+        AssertEqual(KeyboardInputState.NoBackgroundKeyboardInput, state.State);
+        AssertEqual(IntPtr.Zero, state.Target);
+        AssertEqual(IntPtr.Zero, state.Foreground);
+    }
+
+    private static void KeyboardPolicyUsesStrictSystemPassThrough()
+    {
+        AssertTrue(KeyboardInputPolicy.IsSystemOwnedKey(0x0100, 0x5B, false, false, false));
+        AssertTrue(KeyboardInputPolicy.IsSystemOwnedKey(0x0104, 0x46, true, false, false));
+        AssertTrue(KeyboardInputPolicy.IsSystemOwnedKey(0x0100, 0x87, false, false, false));
+        AssertTrue(KeyboardInputPolicy.IsSystemOwnedKey(0x0100, 0x14, false, false, false));
+        AssertFalse(KeyboardInputPolicy.EndsOwnership(0x0100, 0x14, false, false, false));
+        AssertTrue(KeyboardInputPolicy.EndsOwnership(0x0100, 0x1B, false, false, false));
+        AssertTrue(KeyboardInputPolicy.EndsOwnership(0x0100, 0x1B, false, false, true));
     }
 
     private static void FinderRejectsAmbiguousMatches()
