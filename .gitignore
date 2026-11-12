@@ -34,3 +34,6 @@ Thumbs.db
 
 .agents/skills/
 experimental/
+
+# User-specific local script wrappers.
+scripts/personal/
